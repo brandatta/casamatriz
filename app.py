@@ -32,10 +32,6 @@ IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff", ".jp2"
 }
 
-TEXT_EXTENSIONS = {
-    ".docx", ".pdf", ".txt", ".md"
-}
-
 DESIGN_EXTENSIONS = {
     ".ai", ".psd", ".indd"
 }
@@ -62,6 +58,8 @@ RULES = {
         "matrices",
         "mediatrices",
         "editable marcas",
+        "landing",
+        "web",
     ],
     "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES": [
         "ensayo",
@@ -89,6 +87,8 @@ RULES = {
         "metamorfosis",
         "oscuridad",
         "sirenas",
+        "criptozoologia",
+        "criptozoología",
     ],
     "03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO": [
         "curso",
@@ -117,6 +117,8 @@ RULES = {
         "zodiaco",
         "tauro",
         "libra",
+        "luna astrológica",
+        "luna astrologica",
     ],
     "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES": [
         "bibliografia",
@@ -141,7 +143,10 @@ RULES = {
         "epistemología",
         "references",
         "bibliography",
-        "foucault",
+        "university",
+        "submitted",
+        "abstract",
+        "table of contents",
     ],
     "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS": [
         "cabinet",
@@ -167,6 +172,11 @@ RULES = {
         "manuscrito",
         "sketchbook",
         "stephan scriber",
+        "ilustrada",
+        "ilustrado",
+        "editorial",
+        "wunderkammer",
+        "kunstkammer",
     ],
 }
 
@@ -271,7 +281,7 @@ def extract_text(filename: str, file_bytes: bytes) -> str:
     if extension == ".pdf":
         return extract_pdf(file_bytes)
 
-    if extension in [".txt", ".md"]:
+    if extension in [".txt", ".md", ".odt"]:
         return extract_txt(file_bytes)
 
     if extension in IMAGE_EXTENSIONS:
@@ -342,7 +352,7 @@ def classify_file(filename: str, text: str) -> tuple[str, int, str]:
             f"archivo de diseño {extension}"
         )
 
-    # Reglas fuertes por PDF académico
+    # Reglas fuertes por PDF académico / fuente
     if extension == ".pdf":
         academic_terms = [
             "abstract",
@@ -480,12 +490,15 @@ def build_zip(uploaded_files, df: pd.DataFrame) -> bytes:
 # ============================================================
 
 st.title("🗂️ Organizador Casa Matriz")
+
 st.write(
-    "Clasificador simple para documentos, PDFs, imágenes y referencias editoriales."
+    "Clasificador simple para documentos, PDFs, imágenes y referencias editoriales. "
+    "La app sugiere una categoría, permite corregirla manualmente y genera un ZIP organizado."
 )
 
 with st.sidebar:
     st.header("Categorías")
+
     for category in CATEGORIES:
         st.write(f"• {category}")
 
@@ -504,6 +517,7 @@ uploaded_files = st.file_uploader(
         "pdf",
         "txt",
         "md",
+        "odt",
         "jpg",
         "jpeg",
         "png",
@@ -536,6 +550,10 @@ if st.session_state["inventory"] is None:
 
 df = st.session_state["inventory"]
 
+# ============================================================
+# RESUMEN
+# ============================================================
+
 st.subheader("Resumen")
 
 cols = st.columns(len(CATEGORIES))
@@ -546,7 +564,17 @@ for index, category in enumerate(CATEGORIES):
 
 st.divider()
 
+
+# ============================================================
+# REVISIÓN MANUAL
+# ============================================================
+
 st.subheader("Revisión manual")
+
+st.caption(
+    "Podés modificar la columna `Categoría final`. "
+    "El ZIP se arma usando esa categoría final, no la sugerida."
+)
 
 edited_df = st.data_editor(
     df,
@@ -580,6 +608,45 @@ st.session_state["inventory"] = edited_df
 
 st.divider()
 
+
+# ============================================================
+# VISTA POR SECCIONES
+# ============================================================
+
+st.subheader("Archivos organizados por sección")
+
+st.caption(
+    "Esta es la vista final por categoría. "
+    "Si cambiás una categoría arriba, se refleja acá."
+)
+
+for category in CATEGORIES:
+    category_df = edited_df[edited_df["categoria_final"] == category]
+
+    with st.expander(f"{category} ({len(category_df)} archivos)", expanded=True):
+        if category_df.empty:
+            st.caption("Sin archivos en esta sección.")
+        else:
+            for _, row in category_df.iterrows():
+                tags_display = row["tags"] if row["tags"] else "sin tags"
+                st.markdown(
+                    f"""
+**📄 {row['archivo']}**
+
+Extensión: `{row['extension']}` · Tamaño: `{row['tamano_kb']} KB` · Score: `{row['score']}`  
+Tags: `{tags_display}`  
+Motivo: {row['motivo']}
+"""
+                )
+                st.divider()
+
+st.divider()
+
+
+# ============================================================
+# FILTRO
+# ============================================================
+
 st.subheader("Filtrar resultado")
 
 selected_category = st.selectbox(
@@ -608,6 +675,11 @@ st.dataframe(
 )
 
 st.divider()
+
+
+# ============================================================
+# EXPORTACIÓN
+# ============================================================
 
 st.subheader("Exportar")
 
