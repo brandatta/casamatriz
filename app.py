@@ -1,19 +1,17 @@
-import base64
 import io
 import re
-from datetime import datetime
+import zipfile
 from pathlib import Path
-from urllib.parse import quote
+from datetime import datetime
 
 import pandas as pd
-import requests
 import streamlit as st
 from docx import Document
 from pypdf import PdfReader
 
 
 # ============================================================
-# CONFIG
+# CONFIGURACIÓN
 # ============================================================
 
 st.set_page_config(
@@ -54,6 +52,7 @@ NAV_ITEMS = {
     "📁 Bibliografía, investigación y fuentes": "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES",
     "📁 Archivo visual, editorial y referencias": "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS",
     "📋 Inventario general": "inventory",
+    "📦 Exportar": "export",
 }
 
 IMAGE_EXTENSIONS = {
@@ -73,33 +72,35 @@ RULES = {
     ],
     "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES": [
         "ensayo", "cosmos", "core", "pliegues", "habitar", "venus",
-        "buena astrologa", "ideas", "otros titulos", "varios",
-        "adorno", "foucault", "hermeneutica", "mujeres",
-        "giro copernicano", "fragmento", "borrador", "dossier",
-        "cuerpo", "metamorfosis", "oscuridad", "sirenas",
-        "criptozoologia",
+        "buena astróloga", "buena astrologa", "ideas", "otros títulos",
+        "otros titulos", "varios", "adorno", "foucault", "hermenéutica",
+        "hermeneutica", "mujeres", "giro copernicano", "fragmento",
+        "borrador", "dossier", "cuerpo", "metamorfosis", "oscuridad",
+        "sirenas", "criptozoologia", "criptozoología",
     ],
     "03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO": [
-        "curso", "formacion", "certificacion", "luminarias",
-        "sol y luna", "intro curso", "preview", "material adicional",
-        "seminario", "volver a la luna", "transcripcion", "horoscono",
-        "ernesto castro", "arquetipo", "lunar", "solar",
+        "curso", "formación", "formacion", "certificación", "certificacion",
+        "luminarias", "sol y luna", "intro curso", "preview",
+        "material adicional", "seminario", "volver a la luna",
+        "transcripcion", "transcripción", "horoscoño", "horoscono",
+        "ernesto castro", "arquetipo", "lunar", "solar", "astrología",
         "astrologia", "carta natal", "zodiaco", "tauro", "libra",
-        "luna astrologica",
+        "luna astrológica", "luna astrologica",
     ],
     "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES": [
-        "bibliografia", "tesis", "thesis", "phd", "startup",
-        "phillipson", "clynes", "von stuckrad", "astrology and truth",
-        "internet on modern western astrology", "historia", "borges",
-        "seres imaginarios", "libro de los seres", "fuente", "paper",
-        "research", "epistemology", "references", "bibliography",
-        "university", "submitted", "abstract", "table of contents",
+        "bibliografia", "bibliografía", "tesis", "thesis", "phd",
+        "startup", "phillipson", "clynes", "von stuckrad",
+        "astrology and truth", "internet on modern western astrology",
+        "historia", "borges", "seres imaginarios", "libro de los seres",
+        "fuente", "paper", "research", "epistemology", "epistemología",
+        "references", "bibliography", "university", "submitted",
+        "abstract", "table of contents",
     ],
     "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS": [
-        "cabinet", "wonders", "collection", "coleccion ilustrada",
-        "links", "rawpixel", "dragon", "utagawa", "kuniyoshi",
-        "imagen", "visual", "referencia", "archivo visual",
-        "public domain", "wellcome", "british library",
+        "cabinet", "wonders", "collection", "colección ilustrada",
+        "coleccion ilustrada", "links", "rawpixel", "dragon", "dragón",
+        "utagawa", "kuniyoshi", "imagen", "visual", "referencia",
+        "archivo visual", "public domain", "wellcome", "british library",
         "library of congress", "grabado", "manuscrito", "sketchbook",
         "stephan scriber", "ilustrada", "ilustrado", "editorial",
         "wunderkammer", "kunstkammer",
@@ -108,144 +109,7 @@ RULES = {
 
 
 # ============================================================
-# GITHUB CONFIG
-# ============================================================
-
-def get_github_config():
-    token = st.secrets.get("GITHUB_TOKEN", "")
-    repo = st.secrets.get("GITHUB_REPO", "")
-    branch = st.secrets.get("GITHUB_BRANCH", "main")
-
-    if not token or not repo:
-        st.error(
-            "Faltan secrets de GitHub. Configurá GITHUB_TOKEN, GITHUB_REPO y GITHUB_BRANCH en Streamlit Cloud."
-        )
-        st.stop()
-
-    return token, repo, branch
-
-
-def github_headers():
-    token, _, _ = get_github_config()
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
-
-def github_api_url(path: str) -> str:
-    _, repo, _ = get_github_config()
-    encoded_path = quote(path)
-    return f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
-
-
-def github_get_file(path: str):
-    _, _, branch = get_github_config()
-
-    response = requests.get(
-        github_api_url(path),
-        headers=github_headers(),
-        params={"ref": branch},
-        timeout=30,
-    )
-
-    if response.status_code == 404:
-        return None
-
-    response.raise_for_status()
-    return response.json()
-
-
-def github_list_dir(path: str):
-    _, _, branch = get_github_config()
-
-    response = requests.get(
-        github_api_url(path),
-        headers=github_headers(),
-        params={"ref": branch},
-        timeout=30,
-    )
-
-    if response.status_code == 404:
-        return []
-
-    response.raise_for_status()
-    data = response.json()
-
-    if isinstance(data, list):
-        return data
-
-    return []
-
-
-def github_put_file(path: str, file_bytes: bytes, message: str):
-    _, _, branch = get_github_config()
-
-    existing = github_get_file(path)
-
-    payload = {
-        "message": message,
-        "content": base64.b64encode(file_bytes).decode("utf-8"),
-        "branch": branch,
-    }
-
-    if existing and existing.get("sha"):
-        payload["sha"] = existing["sha"]
-
-    response = requests.put(
-        github_api_url(path),
-        headers=github_headers(),
-        json=payload,
-        timeout=60,
-    )
-
-    response.raise_for_status()
-    return response.json()
-
-
-def github_delete_file(path: str, message: str):
-    _, _, branch = get_github_config()
-
-    existing = github_get_file(path)
-
-    if not existing:
-        return None
-
-    payload = {
-        "message": message,
-        "sha": existing["sha"],
-        "branch": branch,
-    }
-
-    response = requests.delete(
-        github_api_url(path),
-        headers=github_headers(),
-        json=payload,
-        timeout=60,
-    )
-
-    response.raise_for_status()
-    return response.json()
-
-
-def github_download_file(path: str) -> bytes:
-    data = github_get_file(path)
-
-    if not data:
-        raise FileNotFoundError(path)
-
-    content = data.get("content", "")
-    encoding = data.get("encoding", "")
-
-    if encoding == "base64":
-        return base64.b64decode(content)
-
-    raise ValueError(f"No se pudo decodificar {path}")
-
-
-# ============================================================
-# TEXT / CLASSIFICATION HELPERS
+# HELPERS
 # ============================================================
 
 def normalize(value: str) -> str:
@@ -296,7 +160,7 @@ def extract_docx(file_bytes: bytes) -> str:
         return f"[ERROR_DOCX] {error}"
 
 
-def extract_pdf(file_bytes: bytes, max_pages: int = 10) -> str:
+def extract_pdf(file_bytes: bytes, max_pages: int = 15) -> str:
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
         parts = []
@@ -333,7 +197,7 @@ def extract_text(filename: str, file_bytes: bytes) -> str:
     if extension == ".pdf":
         return extract_pdf(file_bytes)
 
-    if extension in [".txt", ".md"]:
+    if extension in [".txt", ".md", ".odt"]:
         return extract_txt(file_bytes)
 
     if extension in IMAGE_EXTENSIONS:
@@ -348,7 +212,6 @@ def extract_text(filename: str, file_bytes: bytes) -> str:
 def word_count(text: str) -> int:
     if not text or text.startswith("["):
         return 0
-
     return len(re.findall(r"\b\w+\b", text))
 
 
@@ -382,7 +245,7 @@ def detect_tags(text: str) -> str:
     return ", ".join(sorted(set(tags)))
 
 
-def classify_file(filename: str, text: str):
+def classify_file(filename: str, text: str) -> tuple[str, int, str]:
     extension = Path(filename).suffix.lower()
 
     normalized_name = normalize(filename)
@@ -447,164 +310,158 @@ def file_icon(extension: str) -> str:
         return "📕"
     if extension == ".docx":
         return "📄"
-    if extension in [".txt", ".md"]:
+    if extension in [".txt", ".md", ".odt"]:
         return "📝"
     if extension in DESIGN_EXTENSIONS:
         return "🎨"
     return "📎"
 
 
-# ============================================================
-# INVENTORY
-# ============================================================
+def add_files_to_session(uploaded_files) -> None:
+    existing_names = {item["archivo"] for item in st.session_state["files"]}
 
-INVENTORY_PATH = "data/inventory.csv"
+    for uploaded_file in uploaded_files:
+        filename = uploaded_file.name
 
+        if filename in existing_names:
+            continue
 
-def load_inventory() -> pd.DataFrame:
-    try:
-        file_bytes = github_download_file(INVENTORY_PATH)
-        return pd.read_csv(io.BytesIO(file_bytes))
-    except Exception:
-        return pd.DataFrame(
-            columns=[
-                "archivo",
-                "extension",
-                "tamano_kb",
-                "categoria",
-                "path",
-                "score",
-                "tags",
-                "motivo",
-                "palabras_extraidas",
-                "uploaded_at",
-            ]
+        file_bytes = uploaded_file.getvalue()
+        extension = Path(filename).suffix.lower()
+        text = extract_text(filename, file_bytes)
+        category, score, reason = classify_file(filename, text)
+        tags = detect_tags(f"{filename} {text[:4000]}")
+
+        st.session_state["files"].append(
+            {
+                "archivo": filename,
+                "extension": extension,
+                "tamano_kb": round(len(file_bytes) / 1024, 2),
+                "palabras_extraidas": word_count(text),
+                "categoria_sugerida": category,
+                "categoria_final": category,
+                "score": score,
+                "tags": tags,
+                "motivo": reason,
+                "preview": text[:900].replace("\n", " ").strip(),
+                "bytes": file_bytes,
+                "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
         )
 
 
-def save_inventory(df: pd.DataFrame):
-    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-    github_put_file(
-        INVENTORY_PATH,
-        csv_bytes,
-        "Actualizar inventario Casa Matriz",
-    )
-
-
-def add_inventory_row(row: dict):
-    df = load_inventory()
-
-    # Evita duplicados por path
-    df = df[df["path"] != row["path"]]
-
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-
-    save_inventory(df)
-
-
-def remove_inventory_path(path: str):
-    df = load_inventory()
-
-    if df.empty:
-        return
-
-    df = df[df["path"] != path]
-
-    save_inventory(df)
-
-
-def rebuild_inventory_from_storage() -> pd.DataFrame:
+def files_to_dataframe() -> pd.DataFrame:
     rows = []
 
-    for category in CATEGORIES:
-        contents = github_list_dir(f"storage/{category}")
-
-        for item in contents:
-            if item.get("type") != "file":
-                continue
-
-            filename = item["name"]
-            extension = Path(filename).suffix.lower()
-            path = item["path"]
-
-            rows.append(
-                {
-                    "archivo": filename,
-                    "extension": extension,
-                    "tamano_kb": round(item.get("size", 0) / 1024, 2),
-                    "categoria": category,
-                    "path": path,
-                    "score": "",
-                    "tags": "",
-                    "motivo": "detectado desde GitHub storage",
-                    "palabras_extraidas": "",
-                    "uploaded_at": "",
-                }
-            )
-
-    df = pd.DataFrame(rows)
-
-    if df.empty:
-        df = load_inventory()
-
-    return df
-
-
-# ============================================================
-# UI HELPERS
-# ============================================================
-
-def render_file_card(row):
-    extension = row.get("extension", "")
-    icon = file_icon(extension)
-    filename = row.get("archivo", "")
-    path = row.get("path", "")
-
-    with st.container(border=True):
-        st.markdown(f"### {icon} {filename}")
-
-        st.caption(
-            f"{extension} · {row.get('tamano_kb', '')} KB · "
-            f"{row.get('palabras_extraidas', '')} palabras"
+    for item in st.session_state["files"]:
+        rows.append(
+            {
+                "archivo": item["archivo"],
+                "extension": item["extension"],
+                "tamano_kb": item["tamano_kb"],
+                "palabras_extraidas": item["palabras_extraidas"],
+                "categoria_sugerida": item["categoria_sugerida"],
+                "categoria_final": item["categoria_final"],
+                "score": item["score"],
+                "tags": item["tags"],
+                "motivo": item["motivo"],
+                "preview": item["preview"],
+                "uploaded_at": item["uploaded_at"],
+            }
         )
 
-        if row.get("tags"):
-            st.markdown(f"**Tags:** `{row.get('tags')}`")
+    return pd.DataFrame(rows)
 
-        if row.get("motivo"):
-            st.markdown(f"**Motivo:** {row.get('motivo')}")
 
-        if row.get("uploaded_at"):
-            st.caption(f"Subido: {row.get('uploaded_at')}")
+def apply_category_edits(edited_df: pd.DataFrame) -> None:
+    category_by_file = dict(zip(edited_df["archivo"], edited_df["categoria_final"]))
 
-        try:
-            file_bytes = github_download_file(path)
+    for item in st.session_state["files"]:
+        filename = item["archivo"]
+        if filename in category_by_file:
+            item["categoria_final"] = category_by_file[filename]
 
-            st.download_button(
-                "Descargar",
-                data=file_bytes,
-                file_name=filename,
-                key=f"download_{path}",
-            )
-        except Exception as error:
-            st.warning(f"No se pudo preparar la descarga: {error}")
 
-        if st.button("Eliminar del sitio", key=f"delete_{path}"):
-            try:
-                github_delete_file(path, f"Eliminar {filename}")
-                remove_inventory_path(path)
-                st.success("Archivo eliminado.")
-                st.rerun()
-            except Exception as error:
-                st.error(f"No se pudo eliminar: {error}")
+def generate_structure_text() -> str:
+    lines = []
+    lines.append("CASA MATRIZ - ESTRUCTURA PROPUESTA")
+    lines.append(f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("")
+
+    for category in CATEGORIES:
+        lines.append(f"{category}/")
+        items = [
+            item for item in st.session_state["files"]
+            if item["categoria_final"] == category
+        ]
+
+        if not items:
+            lines.append("  [sin archivos]")
+        else:
+            for item in items:
+                lines.append(f"  - {item['archivo']}")
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_zip() -> bytes:
+    zip_buffer = io.BytesIO()
+    df = files_to_dataframe()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        csv_data = df.to_csv(index=False).encode("utf-8-sig")
+        zip_file.writestr("inventario_casa_matriz.csv", csv_data)
+
+        structure_text = generate_structure_text()
+        zip_file.writestr(
+            "estructura_propuesta_casa_matriz.txt",
+            structure_text.encode("utf-8"),
+        )
+
+        for item in st.session_state["files"]:
+            category = item["categoria_final"]
+            filename = clean_filename(item["archivo"])
+            zip_path = f"{category}/{filename}"
+            zip_file.writestr(zip_path, item["bytes"])
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+
+def remove_file(filename: str) -> None:
+    st.session_state["files"] = [
+        item for item in st.session_state["files"]
+        if item["archivo"] != filename
+    ]
+
+
+def clear_all_files() -> None:
+    st.session_state["files"] = []
+
+
+def get_items_by_category(category: str) -> list[dict]:
+    return [
+        item for item in st.session_state["files"]
+        if item["categoria_final"] == category
+    ]
 
 
 # ============================================================
-# SIDEBAR
+# SESSION STATE
+# ============================================================
+
+if "files" not in st.session_state:
+    st.session_state["files"] = []
+
+
+# ============================================================
+# SIDEBAR NAV
 # ============================================================
 
 st.sidebar.title("🗂️ Casa Matriz")
-st.sidebar.caption("Archivo persistente en GitHub")
+st.sidebar.caption("Archivo organizado")
 
 selected_nav_label = st.sidebar.radio(
     "Navegación",
@@ -615,114 +472,75 @@ selected_page = NAV_ITEMS[selected_nav_label]
 
 st.sidebar.divider()
 
-inventory_df = load_inventory()
+total_files = len(st.session_state["files"])
+st.sidebar.metric("Archivos cargados", total_files)
 
 for category in CATEGORIES:
-    count = int((inventory_df["categoria"] == category).sum()) if not inventory_df.empty else 0
+    count = len(get_items_by_category(category))
     st.sidebar.caption(f"{CATEGORY_LABELS[category]}: {count}")
+
+st.sidebar.divider()
+
+if st.sidebar.button("Vaciar archivos cargados"):
+    clear_all_files()
+    st.rerun()
 
 
 # ============================================================
-# HOME
+# HOME / UPLOAD
 # ============================================================
 
 if selected_page == "home":
     st.title("🗂️ Casa Matriz | Archivo organizado")
 
     st.write(
-        "Subí archivos y la app los guarda permanentemente en GitHub, "
-        "dentro de su categoría correspondiente."
-    )
-
-    st.info(
-        "Los archivos se guardan en el repo, dentro de `/storage/<categoria>/`. "
-        "Luego quedan visibles en cada sección del sitio."
+        "Subí archivos y la app los ubica automáticamente en una de las cinco secciones. "
+        "Después podés entrar a cada sección desde el menú lateral para ver sus archivos."
     )
 
     uploaded_files = st.file_uploader(
         "Subir archivos",
         accept_multiple_files=True,
         type=[
-            "docx", "pdf", "txt", "md",
+            "docx", "pdf", "txt", "md", "odt",
             "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "jp2",
             "ai", "psd", "indd",
         ],
     )
 
     if uploaded_files:
-        if st.button("Guardar archivos en el sitio", type="primary"):
-            with st.spinner("Clasificando y guardando en GitHub..."):
-                for uploaded_file in uploaded_files:
-                    filename = clean_filename(uploaded_file.name)
-                    extension = Path(filename).suffix.lower()
-                    file_bytes = uploaded_file.getvalue()
-
-                    text = extract_text(filename, file_bytes)
-                    category, score, reason = classify_file(filename, text)
-                    tags = detect_tags(f"{filename} {text[:4000]}")
-
-                    github_path = f"storage/{category}/{filename}"
-
-                    github_put_file(
-                        github_path,
-                        file_bytes,
-                        f"Subir archivo {filename} a {category}",
-                    )
-
-                    row = {
-                        "archivo": filename,
-                        "extension": extension,
-                        "tamano_kb": round(len(file_bytes) / 1024, 2),
-                        "categoria": category,
-                        "path": github_path,
-                        "score": score,
-                        "tags": tags,
-                        "motivo": reason,
-                        "palabras_extraidas": word_count(text),
-                        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-
-                    add_inventory_row(row)
-
-            st.success("Archivos guardados en el sitio.")
-            st.rerun()
+        add_files_to_session(uploaded_files)
+        st.success(f"Archivos cargados en esta sesión: {len(st.session_state['files'])}")
 
     st.subheader("Secciones")
-
-    inventory_df = load_inventory()
 
     cols = st.columns(5)
 
     for idx, category in enumerate(CATEGORIES):
         with cols[idx]:
-            count = int((inventory_df["categoria"] == category).sum()) if not inventory_df.empty else 0
+            count = len(get_items_by_category(category))
             st.metric(CATEGORY_LABELS[category], count)
             st.caption(CATEGORY_DESCRIPTIONS[category])
+
+    st.info("Para ver los archivos de cada categoría, hacé click en la sección correspondiente del menú lateral.")
 
     st.stop()
 
 
 # ============================================================
-# CATEGORY PAGES
+# CATEGORY PAGE
 # ============================================================
 
 if selected_page in CATEGORIES:
     category = selected_page
+    items = get_items_by_category(category)
 
     st.title(f"📁 {CATEGORY_LABELS[category]}")
     st.caption(CATEGORY_DESCRIPTIONS[category])
 
-    inventory_df = load_inventory()
+    st.metric("Archivos en esta sección", len(items))
 
-    if inventory_df.empty:
-        st.info("Todavía no hay archivos guardados.")
-        st.stop()
-
-    category_df = inventory_df[inventory_df["categoria"] == category].copy()
-
-    st.metric("Archivos en esta sección", len(category_df))
-
-    if category_df.empty:
+    if not items:
         st.info("Todavía no hay archivos en esta sección.")
         st.stop()
 
@@ -730,56 +548,157 @@ if selected_page in CATEGORIES:
 
     if search:
         search_norm = normalize(search)
-        category_df = category_df[
-            category_df.apply(
-                lambda row: search_norm in normalize(str(row.get("archivo", "")))
-                or search_norm in normalize(str(row.get("tags", "")))
-                or search_norm in normalize(str(row.get("motivo", ""))),
-                axis=1,
-            )
+        items = [
+            item for item in items
+            if search_norm in normalize(item["archivo"])
+            or search_norm in normalize(item["tags"])
+            or search_norm in normalize(item["motivo"])
+            or search_norm in normalize(item["preview"])
         ]
+
+    st.write(f"Mostrando {len(items)} archivo(s).")
 
     cols = st.columns(3)
 
-    for index, row in category_df.reset_index(drop=True).iterrows():
-        with cols[index % 3]:
-            render_file_card(row)
+    for index, item in enumerate(items):
+        col = cols[index % 3]
+
+        with col:
+            icon = file_icon(item["extension"])
+
+            with st.container(border=True):
+                st.markdown(f"### {icon} {item['archivo']}")
+                st.caption(
+                    f"{item['extension']} · {item['tamano_kb']} KB · "
+                    f"{item['palabras_extraidas']} palabras"
+                )
+
+                if item["tags"]:
+                    st.markdown(f"**Tags:** `{item['tags']}`")
+
+                st.markdown(f"**Motivo:** {item['motivo']}")
+                st.caption(f"Subido: {item['uploaded_at']}")
+
+                if item["preview"] and not item["preview"].startswith("[IMAGEN]"):
+                    with st.expander("Preview"):
+                        st.write(item["preview"])
+
+                st.download_button(
+                    "Descargar",
+                    data=item["bytes"],
+                    file_name=item["archivo"],
+                    key=f"download_{category}_{index}_{item['archivo']}",
+                )
+
+                new_category = st.selectbox(
+                    "Mover a categoría",
+                    CATEGORIES,
+                    index=CATEGORIES.index(item["categoria_final"]),
+                    key=f"move_{category}_{index}_{item['archivo']}",
+                )
+
+                if new_category != item["categoria_final"]:
+                    item["categoria_final"] = new_category
+                    st.rerun()
+
+                if st.button(
+                    "Quitar",
+                    key=f"remove_{category}_{index}_{item['archivo']}",
+                ):
+                    remove_file(item["archivo"])
+                    st.rerun()
 
     st.stop()
 
 
 # ============================================================
-# INVENTORY
+# INVENTORY PAGE
 # ============================================================
 
 if selected_page == "inventory":
     st.title("📋 Inventario general")
 
-    col_a, col_b = st.columns([1, 3])
-
-    with col_a:
-        if st.button("Reconstruir inventario desde GitHub"):
-            with st.spinner("Leyendo storage desde GitHub..."):
-                rebuilt = rebuild_inventory_from_storage()
-                save_inventory(rebuilt)
-                st.success("Inventario reconstruido.")
-                st.rerun()
-
-    inventory_df = load_inventory()
-
-    if inventory_df.empty:
-        st.info("Todavía no hay archivos guardados.")
+    if not st.session_state["files"]:
+        st.info("Todavía no hay archivos cargados.")
         st.stop()
 
-    st.dataframe(inventory_df, use_container_width=True)
+    df = files_to_dataframe()
 
-    csv_bytes = inventory_df.to_csv(index=False).encode("utf-8-sig")
-
-    st.download_button(
-        "Descargar inventario CSV",
-        data=csv_bytes,
-        file_name="inventario_casa_matriz.csv",
-        mime="text/csv",
+    edited_df = st.data_editor(
+        df,
+        use_container_width=True,
+        num_rows="fixed",
+        column_config={
+            "categoria_final": st.column_config.SelectboxColumn(
+                "Categoría final",
+                options=CATEGORIES,
+                required=True,
+            ),
+            "preview": st.column_config.TextColumn("Preview", width="large"),
+        },
+        disabled=[
+            "archivo",
+            "extension",
+            "tamano_kb",
+            "palabras_extraidas",
+            "categoria_sugerida",
+            "score",
+            "tags",
+            "motivo",
+            "preview",
+            "uploaded_at",
+        ],
     )
+
+    apply_category_edits(edited_df)
+
+    st.stop()
+
+
+# ============================================================
+# EXPORT PAGE
+# ============================================================
+
+if selected_page == "export":
+    st.title("📦 Exportar archivo organizado")
+
+    if not st.session_state["files"]:
+        st.info("Todavía no hay archivos cargados.")
+        st.stop()
+
+    final_df = files_to_dataframe()
+
+    csv_bytes = final_df.to_csv(index=False).encode("utf-8-sig")
+    structure_text = generate_structure_text()
+    zip_bytes = build_zip()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.download_button(
+            "Descargar inventario CSV",
+            data=csv_bytes,
+            file_name="inventario_casa_matriz.csv",
+            mime="text/csv",
+        )
+
+    with col2:
+        st.download_button(
+            "Descargar estructura TXT",
+            data=structure_text.encode("utf-8"),
+            file_name="estructura_propuesta_casa_matriz.txt",
+            mime="text/plain",
+        )
+
+    with col3:
+        st.download_button(
+            "Descargar ZIP organizado",
+            data=zip_bytes,
+            file_name="casa_matriz_organizado.zip",
+            mime="application/zip",
+        )
+
+    with st.expander("Ver estructura propuesta"):
+        st.code(structure_text, language="text")
 
     st.stop()
