@@ -1,20 +1,17 @@
-import os
-import re
 import io
+import re
 import zipfile
-import shutil
-import tempfile
 from pathlib import Path
 from datetime import datetime
 
-import fitz  # PyMuPDF
 import pandas as pd
 import streamlit as st
 from docx import Document
+from pypdf import PdfReader
 
 
 # ============================================================
-# CONFIG
+# CONFIGURACIÓN GENERAL
 # ============================================================
 
 st.set_page_config(
@@ -31,440 +28,398 @@ CATEGORIES = [
     "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS",
 ]
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".tif", ".jp2"}
-DOC_EXTENSIONS = {".docx", ".pdf", ".txt", ".md"}
-OTHER_EXTENSIONS = {".ai", ".psd", ".indd", ".zip"}
+IMAGE_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff", ".jp2"
+}
 
+TEXT_EXTENSIONS = {
+    ".docx", ".pdf", ".txt", ".md"
+}
 
-CATEGORY_RULES = {
-    "01_IDENTIDAD_MARCA_Y_ESTRATEGIA": {
-        "keywords": [
-            "casa matriz",
-            "proyecto integral",
-            "manifiesto",
-            "fundamentos",
-            "marca",
-            "identidad",
-            "estrategia",
-            "nombres",
-            "tagline",
-            "landing",
-            "web",
-            "estructura",
-            "talleres",
-            "publicaciones",
-            "matrices",
-            "mediatrices",
-            "editable marcas",
-        ],
-        "weight": 5,
-    },
-    "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES": {
-        "keywords": [
-            "ensayo",
-            "cosmos",
-            "core",
-            "pliegues",
-            "habitar",
-            "venus",
-            "buena astróloga",
-            "ideas",
-            "otros títulos",
-            "varios",
-            "adorno",
-            "foucault",
-            "hermeneutica",
-            "mujeres",
-            "giro copernicano",
-            "criptozoología",
-            "fragmento",
-            "borrador",
-            "dossier",
-            "cuerpo",
-            "metamorfosis",
-            "oscuridad",
-            "sirenas",
-            "luna",
-            "imagen",
-        ],
-        "weight": 4,
-    },
-    "03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO": {
-        "keywords": [
-            "curso",
-            "formación",
-            "formacion",
-            "certificación",
-            "certificacion",
-            "luminarias",
-            "sol y luna",
-            "intro curso",
-            "preview",
-            "material adicional",
-            "seminario",
-            "volver a la luna",
-            "transcripcion",
-            "transcripción",
-            "horoscoño",
-            "ernesto castro",
-            "arquetipo",
-            "lunar",
-            "solar",
-            "astrología",
-            "astrologia",
-            "carta natal",
-            "zodiaco",
-            "venus",
-            "tauro",
-            "libra",
-        ],
-        "weight": 4,
-    },
-    "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES": {
-        "keywords": [
-            "bibliografia",
-            "bibliografía",
-            "tesis",
-            "thesis",
-            "phd",
-            "startup",
-            "phillipson",
-            "clynes",
-            "von stuckrad",
-            "astrology and truth",
-            "internet on modern western astrology",
-            "historia",
-            "foucault",
-            "borges",
-            "seres imaginarios",
-            "libro de los seres",
-            "fuente",
-            "paper",
-            "research",
-            "epistemology",
-            "epistemología",
-            "bibliography",
-            "references",
-        ],
-        "weight": 5,
-    },
-    "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS": {
-        "keywords": [
-            "cabinet",
-            "wonders",
-            "collection",
-            "colección ilustrada",
-            "coleccion ilustrada",
-            "links",
-            "rawpixel",
-            "dragon",
-            "dragón",
-            "utagawa",
-            "kuniyoshi",
-            "imagen",
-            "visual",
-            "referencia",
-            "archivo visual",
-            "public domain",
-            "wellcome",
-            "british library",
-            "library of congress",
-            "munch",
-            "grabado",
-            "manuscrito",
-            "sketchbook",
-            "stephan scriber",
-            "ai",
-            "jpg",
-            "jpeg",
-            "png",
-            "jp2",
-        ],
-        "weight": 5,
-    },
+DESIGN_EXTENSIONS = {
+    ".ai", ".psd", ".indd"
 }
 
 
 # ============================================================
-# HELPERS
+# REGLAS DE CLASIFICACIÓN
 # ============================================================
 
-def normalize_text(value: str) -> str:
+RULES = {
+    "01_IDENTIDAD_MARCA_Y_ESTRATEGIA": [
+        "casa matriz",
+        "proyecto integral",
+        "manifiesto",
+        "fundamentos",
+        "marca",
+        "identidad",
+        "estrategia",
+        "nombres",
+        "tagline",
+        "estructura",
+        "talleres",
+        "publicaciones",
+        "matrices",
+        "mediatrices",
+        "editable marcas",
+    ],
+    "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES": [
+        "ensayo",
+        "cosmos",
+        "core",
+        "pliegues",
+        "habitar",
+        "venus",
+        "buena astróloga",
+        "buena astrologa",
+        "ideas",
+        "otros títulos",
+        "otros titulos",
+        "varios",
+        "adorno",
+        "foucault",
+        "hermenéutica",
+        "hermeneutica",
+        "mujeres",
+        "giro copernicano",
+        "fragmento",
+        "borrador",
+        "dossier",
+        "cuerpo",
+        "metamorfosis",
+        "oscuridad",
+        "sirenas",
+    ],
+    "03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO": [
+        "curso",
+        "formación",
+        "formacion",
+        "certificación",
+        "certificacion",
+        "luminarias",
+        "sol y luna",
+        "intro curso",
+        "preview",
+        "material adicional",
+        "seminario",
+        "volver a la luna",
+        "transcripcion",
+        "transcripción",
+        "horoscoño",
+        "horoscono",
+        "ernesto castro",
+        "arquetipo",
+        "lunar",
+        "solar",
+        "astrología",
+        "astrologia",
+        "carta natal",
+        "zodiaco",
+        "tauro",
+        "libra",
+    ],
+    "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES": [
+        "bibliografia",
+        "bibliografía",
+        "tesis",
+        "thesis",
+        "phd",
+        "startup",
+        "phillipson",
+        "clynes",
+        "von stuckrad",
+        "astrology and truth",
+        "internet on modern western astrology",
+        "historia",
+        "borges",
+        "seres imaginarios",
+        "libro de los seres",
+        "fuente",
+        "paper",
+        "research",
+        "epistemology",
+        "epistemología",
+        "references",
+        "bibliography",
+        "foucault",
+    ],
+    "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS": [
+        "cabinet",
+        "wonders",
+        "collection",
+        "colección ilustrada",
+        "coleccion ilustrada",
+        "links",
+        "rawpixel",
+        "dragon",
+        "dragón",
+        "utagawa",
+        "kuniyoshi",
+        "imagen",
+        "visual",
+        "referencia",
+        "archivo visual",
+        "public domain",
+        "wellcome",
+        "british library",
+        "library of congress",
+        "grabado",
+        "manuscrito",
+        "sketchbook",
+        "stephan scriber",
+    ],
+}
+
+
+# ============================================================
+# FUNCIONES AUXILIARES
+# ============================================================
+
+def normalize(value: str) -> str:
     if not value:
         return ""
+
     value = value.lower()
-    value = value.replace("_", " ").replace("-", " ")
+    value = value.replace("_", " ")
+    value = value.replace("-", " ")
     value = re.sub(r"\s+", " ", value)
+
+    replacements = {
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ü": "u",
+        "ñ": "n",
+    }
+
+    for original, replacement in replacements.items():
+        value = value.replace(original, replacement)
+
     return value.strip()
 
 
-def safe_filename(filename: str) -> str:
-    """
-    Sanitiza nombres para evitar problemas en filesystem.
-    Mantiene bastante legibilidad.
-    """
-    name = filename.strip()
-    name = re.sub(r'[<>:"/\\|?*]', "-", name)
-    name = re.sub(r"\s+", " ", name)
-    return name[:180]
+def clean_filename(filename: str) -> str:
+    filename = filename.strip()
+    filename = re.sub(r'[<>:"/\\|?*]', "-", filename)
+    filename = re.sub(r"\s+", " ", filename)
+    return filename[:180]
 
 
-def extract_text_docx(file_bytes: bytes) -> str:
+def extract_docx(file_bytes: bytes) -> str:
     try:
-        doc = Document(io.BytesIO(file_bytes))
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        document = Document(io.BytesIO(file_bytes))
+        parts = []
 
-        # También intenta leer tablas
-        table_texts = []
-        for table in doc.tables:
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            if text:
+                parts.append(text)
+
+        for table in document.tables:
             for row in table.rows:
-                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                if cells:
-                    table_texts.append(" | ".join(cells))
+                row_text = []
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    if cell_text:
+                        row_text.append(cell_text)
+                if row_text:
+                    parts.append(" | ".join(row_text))
 
-        return "\n".join(paragraphs + table_texts).strip()
-    except Exception as e:
-        return f"[ERROR_DOCX] {e}"
+        return "\n".join(parts)
+
+    except Exception as error:
+        return f"[ERROR_DOCX] {error}"
 
 
-def extract_text_pdf(file_bytes: bytes, max_pages: int = 20) -> str:
-    """
-    Extrae texto de PDFs. Limita páginas para MVP y performance.
-    """
+def extract_pdf(file_bytes: bytes, max_pages: int = 15) -> str:
     try:
-        text_parts = []
-        pdf = fitz.open(stream=file_bytes, filetype="pdf")
-        pages_to_read = min(len(pdf), max_pages)
+        reader = PdfReader(io.BytesIO(file_bytes))
+        parts = []
 
-        for page_index in range(pages_to_read):
-            page = pdf[page_index]
-            text = page.get_text("text")
+        total_pages = min(len(reader.pages), max_pages)
+
+        for index in range(total_pages):
+            page = reader.pages[index]
+            text = page.extract_text() or ""
             if text.strip():
-                text_parts.append(text)
+                parts.append(text.strip())
 
-        pdf.close()
-        return "\n".join(text_parts).strip()
-    except Exception as e:
-        return f"[ERROR_PDF] {e}"
+        return "\n".join(parts)
+
+    except Exception as error:
+        return f"[ERROR_PDF] {error}"
 
 
-def extract_text_plain(file_bytes: bytes) -> str:
+def extract_txt(file_bytes: bytes) -> str:
     for encoding in ["utf-8", "latin-1", "cp1252"]:
         try:
-            return file_bytes.decode(encoding).strip()
+            return file_bytes.decode(encoding)
         except UnicodeDecodeError:
             continue
-    return "[ERROR_TEXT] No se pudo decodificar el archivo de texto."
+
+    return "[ERROR_TXT] No se pudo leer el archivo de texto."
 
 
 def extract_text(filename: str, file_bytes: bytes) -> str:
-    ext = Path(filename).suffix.lower()
+    extension = Path(filename).suffix.lower()
 
-    if ext == ".docx":
-        return extract_text_docx(file_bytes)
+    if extension == ".docx":
+        return extract_docx(file_bytes)
 
-    if ext == ".pdf":
-        return extract_text_pdf(file_bytes)
+    if extension == ".pdf":
+        return extract_pdf(file_bytes)
 
-    if ext in [".txt", ".md"]:
-        return extract_text_plain(file_bytes)
+    if extension in [".txt", ".md"]:
+        return extract_txt(file_bytes)
 
-    if ext in IMAGE_EXTENSIONS:
-        return "[IMAGE_FILE] Archivo visual sin extracción de texto."
+    if extension in IMAGE_EXTENSIONS:
+        return "[IMAGEN] Archivo visual."
 
-    if ext == ".ai":
-        return "[DESIGN_FILE] Archivo Adobe Illustrator / marca / diseño."
+    if extension in DESIGN_EXTENSIONS:
+        return "[DISEÑO] Archivo de diseño."
 
-    return "[UNSUPPORTED] Tipo de archivo no soportado para extracción de texto."
+    return "[SIN_TEXTO] No se extrajo texto para este tipo de archivo."
 
 
-def count_words(text: str) -> int:
+def word_count(text: str) -> int:
     if not text or text.startswith("["):
         return 0
     return len(re.findall(r"\b\w+\b", text))
 
 
-def score_category(filename: str, text: str, ext: str) -> tuple[str, int, str, list[str]]:
-    """
-    Clasificador simple por reglas.
-    Devuelve:
-    - categoría sugerida
-    - score
-    - motivo
-    - tags detectados
-    """
+def detect_tags(text: str) -> str:
+    normalized = normalize(text)
 
-    searchable_name = normalize_text(filename)
-    searchable_text = normalize_text(text[:8000])
-    combined = f"{searchable_name} {searchable_text}"
+    tag_rules = {
+        "astrologia": ["astrologia", "zodiaco", "carta natal", "horoscopo"],
+        "cine": ["cine", "pelicula", "pantalla", "fotograma"],
+        "luna": ["luna", "lunar", "selene", "artemisa"],
+        "sol": ["sol", "solar"],
+        "mitologia": ["mitologia", "dioses", "diosa", "arquetipo"],
+        "bestiario": ["bestiario", "grifo", "fenix", "salamandra", "unicornio", "dragon"],
+        "imagen": ["imagen", "visual", "grabado", "manuscrito", "ilustracion"],
+        "marca": ["marca", "identidad", "logo", "tagline"],
+        "curso": ["curso", "clase", "certificacion", "material adicional"],
+        "bibliografia": ["bibliografia", "references", "bibliography"],
+        "tesis": ["tesis", "thesis", "phd"],
+        "ensayo": ["ensayo", "dossier", "texto"],
+        "editorial": ["editorial", "coleccion", "cabinet", "wonders"],
+    }
 
-    scores = {cat: 0 for cat in CATEGORIES}
-    hits = {cat: [] for cat in CATEGORIES}
+    tags = []
 
-    # Regla fuerte por tipo de archivo visual
-    if ext in IMAGE_EXTENSIONS:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 12
-        hits["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(f"extensión visual {ext}")
+    for tag, keywords in tag_rules.items():
+        for keyword in keywords:
+            if keyword in normalized:
+                tags.append(tag)
+                break
 
-    if ext in {".ai", ".psd", ".indd"}:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 10
-        hits["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(f"archivo de diseño {ext}")
+    return ", ".join(sorted(set(tags)))
 
-    # Regla fuerte por PDFs académicos
-    if ext == ".pdf":
-        pdf_source_terms = [
+
+def classify_file(filename: str, text: str) -> tuple[str, int, str]:
+    extension = Path(filename).suffix.lower()
+
+    normalized_name = normalize(filename)
+    normalized_text = normalize(text[:6000])
+    searchable = f"{normalized_name} {normalized_text}"
+
+    scores = {category: 0 for category in CATEGORIES}
+    reasons = {category: [] for category in CATEGORIES}
+
+    # Reglas fuertes por extensión
+    if extension in IMAGE_EXTENSIONS:
+        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 20
+        reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
+            f"archivo visual {extension}"
+        )
+
+    if extension in DESIGN_EXTENSIONS:
+        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 18
+        reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
+            f"archivo de diseño {extension}"
+        )
+
+    # Reglas fuertes por PDF académico
+    if extension == ".pdf":
+        academic_terms = [
+            "abstract",
             "thesis",
             "phd",
-            "bibliography",
-            "abstract",
             "university",
-            "submitted",
+            "bibliography",
             "references",
             "table of contents",
+            "submitted",
         ]
-        if any(term in searchable_text for term in pdf_source_terms):
-            scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 8
-            hits["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"].append("estructura de tesis/paper/pdf académico")
+        if any(term in searchable for term in academic_terms):
+            scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 12
+            reasons["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"].append(
+                "estructura de tesis/paper/libro académico"
+            )
 
-    # Keywords por categoría
-    for category, config in CATEGORY_RULES.items():
-        weight = config["weight"]
-        for kw in config["keywords"]:
-            kw_norm = normalize_text(kw)
-            if kw_norm and kw_norm in combined:
-                # Más peso si aparece en nombre de archivo
-                if kw_norm in searchable_name:
-                    scores[category] += weight * 2
-                    hits[category].append(f"nombre contiene '{kw}'")
-                else:
-                    scores[category] += weight
-                    hits[category].append(f"contenido contiene '{kw}'")
+    # Reglas por keywords
+    for category, keywords in RULES.items():
+        for keyword in keywords:
+            keyword_normalized = normalize(keyword)
 
-    # Ajustes específicos
-    if "seminario" in searchable_name and "luna" in searchable_name:
-        scores["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"] += 8
-        hits["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"].append("seminario lunar")
+            if keyword_normalized in normalized_name:
+                scores[category] += 6
+                reasons[category].append(f"nombre contiene '{keyword}'")
 
-    if "cabinet" in searchable_name or "wonders" in searchable_name:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 8
-        hits["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append("proyecto editorial visual")
+            elif keyword_normalized in normalized_text:
+                scores[category] += 3
+                reasons[category].append(f"contenido contiene '{keyword}'")
 
-    if "proyecto integral" in searchable_name or "fundamentos" in searchable_name:
-        scores["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"] += 10
-        hits["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"].append("documento estratégico/fundacional")
-
-    # Selección final
     best_category = max(scores, key=scores.get)
     best_score = scores[best_category]
 
     if best_score == 0:
         best_category = "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"
-        reason = "No hubo coincidencias fuertes; se clasifica provisoriamente como borrador/obra autoral."
-        detected_tags = []
+        reason = "sin coincidencias fuertes; revisar manualmente"
     else:
-        reason = "; ".join(hits[best_category][:5])
-        detected_tags = extract_tags(combined)
+        reason_items = reasons[best_category][:4]
+        reason = "; ".join(reason_items)
 
-    return best_category, best_score, reason, detected_tags
-
-
-def extract_tags(combined_text: str) -> list[str]:
-    tag_map = {
-        "astrologia": ["astrología", "astrologia", "zodiaco", "carta natal", "horóscopo", "horoscopo"],
-        "cine": ["cine", "película", "pelicula", "pantalla", "fotograma", "kubrick"],
-        "luna": ["luna", "lunar", "selene", "artemisa", "hecate"],
-        "sol": ["sol", "solar"],
-        "mitologia": ["mitología", "mitologia", "dioses", "diosa", "arquetipo"],
-        "bestiario": ["bestiario", "grifo", "fénix", "fenix", "salamandra", "unicornio", "dragón", "dragon"],
-        "imagen": ["imagen", "visual", "grabado", "manuscrito", "ilustración", "ilustracion"],
-        "marca": ["marca", "identidad", "logo", "tagline"],
-        "curso": ["curso", "clase", "certificación", "certificacion", "material adicional"],
-        "bibliografia": ["bibliografía", "bibliografia", "references", "bibliography"],
-        "tesis": ["tesis", "thesis", "phd", "submitted"],
-        "ensayo": ["ensayo", "dossier", "texto"],
-        "editorial": ["editorial", "colección", "coleccion", "cabinet", "wonders"],
-    }
-
-    tags = []
-    for tag, terms in tag_map.items():
-        for term in terms:
-            if normalize_text(term) in combined_text:
-                tags.append(tag)
-                break
-
-    return sorted(set(tags))
+    return best_category, best_score, reason
 
 
-def create_inventory(uploaded_files) -> pd.DataFrame:
+def build_inventory(uploaded_files) -> pd.DataFrame:
     rows = []
 
-    for file in uploaded_files:
-        filename = file.name
-        ext = Path(filename).suffix.lower()
-        file_bytes = file.getvalue()
-        size_kb = round(len(file_bytes) / 1024, 2)
+    for uploaded_file in uploaded_files:
+        filename = uploaded_file.name
+        extension = Path(filename).suffix.lower()
+        file_bytes = uploaded_file.getvalue()
 
         text = extract_text(filename, file_bytes)
-        words = count_words(text)
 
-        suggested_category, score, reason, tags = score_category(
-            filename=filename,
-            text=text,
-            ext=ext,
-        )
+        category, score, reason = classify_file(filename, text)
 
-        preview = text[:1000].replace("\n", " ").strip()
+        combined_for_tags = f"{filename} {text[:4000]}"
+        tags = detect_tags(combined_for_tags)
 
         rows.append(
             {
                 "archivo": filename,
-                "extension": ext,
-                "tamano_kb": size_kb,
-                "palabras_extraidas": words,
-                "categoria_sugerida": suggested_category,
-                "categoria_final": suggested_category,
+                "extension": extension,
+                "tamano_kb": round(len(file_bytes) / 1024, 2),
+                "palabras_extraidas": word_count(text),
+                "categoria_sugerida": category,
+                "categoria_final": category,
                 "score": score,
-                "tags": ", ".join(tags),
+                "tags": tags,
                 "motivo": reason,
-                "preview_texto": preview,
+                "preview": text[:900].replace("\n", " ").strip(),
             }
         )
 
     return pd.DataFrame(rows)
 
 
-def build_zip_from_inventory(uploaded_files, inventory_df: pd.DataFrame) -> bytes:
-    """
-    Crea ZIP con carpetas por categoria_final y copia los archivos.
-    """
-    file_map = {file.name: file.getvalue() for file in uploaded_files}
-
-    zip_buffer = io.BytesIO()
-
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        # Agrega inventario CSV dentro del zip
-        csv_bytes = inventory_df.to_csv(index=False).encode("utf-8-sig")
-        zipf.writestr("inventario_casa_matriz.csv", csv_bytes)
-
-        # Agrega estructura TXT
-        structure_txt = generate_structure_txt(inventory_df)
-        zipf.writestr("estructura_propuesta.txt", structure_txt.encode("utf-8"))
-
-        # Agrega archivos clasificados
-        for _, row in inventory_df.iterrows():
-            filename = row["archivo"]
-            category = row["categoria_final"]
-            safe_name = safe_filename(filename)
-
-            if filename in file_map:
-                zip_path = f"{category}/{safe_name}"
-                zipf.writestr(zip_path, file_map[filename])
-
-    zip_buffer.seek(0)
-    return zip_buffer.getvalue()
-
-
-def generate_structure_txt(inventory_df: pd.DataFrame) -> str:
+def generate_structure_text(df: pd.DataFrame) -> str:
     lines = []
     lines.append("CASA MATRIZ - ESTRUCTURA PROPUESTA")
     lines.append(f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -472,16 +427,52 @@ def generate_structure_txt(inventory_df: pd.DataFrame) -> str:
 
     for category in CATEGORIES:
         lines.append(f"{category}/")
-        subset = inventory_df[inventory_df["categoria_final"] == category]
-        for _, row in subset.iterrows():
-            lines.append(f"  - {row['archivo']}")
+        subset = df[df["categoria_final"] == category]
+
+        if subset.empty:
+            lines.append("  [sin archivos]")
+        else:
+            for _, row in subset.iterrows():
+                lines.append(f"  - {row['archivo']}")
+
         lines.append("")
 
     return "\n".join(lines)
 
 
-def make_csv_download(df: pd.DataFrame) -> bytes:
-    return df.to_csv(index=False).encode("utf-8-sig")
+def build_zip(uploaded_files, df: pd.DataFrame) -> bytes:
+    zip_buffer = io.BytesIO()
+    file_bytes_by_name = {
+        uploaded_file.name: uploaded_file.getvalue()
+        for uploaded_file in uploaded_files
+    }
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        # Inventario
+        csv_data = df.to_csv(index=False).encode("utf-8-sig")
+        zip_file.writestr("inventario_casa_matriz.csv", csv_data)
+
+        # Estructura
+        structure_text = generate_structure_text(df)
+        zip_file.writestr(
+            "estructura_propuesta_casa_matriz.txt",
+            structure_text.encode("utf-8")
+        )
+
+        # Archivos
+        for _, row in df.iterrows():
+            filename = row["archivo"]
+            category = row["categoria_final"]
+            safe_name = clean_filename(filename)
+
+            file_bytes = file_bytes_by_name.get(filename)
+
+            if file_bytes is not None:
+                zip_path = f"{category}/{safe_name}"
+                zip_file.writestr(zip_path, file_bytes)
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
 
 
 # ============================================================
@@ -489,23 +480,20 @@ def make_csv_download(df: pd.DataFrame) -> bytes:
 # ============================================================
 
 st.title("🗂️ Organizador Casa Matriz")
-st.caption("MVP para clasificar documentos, bibliografía, cursos, obra autoral y archivo visual.")
+st.write(
+    "Clasificador simple para documentos, PDFs, imágenes y referencias editoriales."
+)
 
 with st.sidebar:
     st.header("Categorías")
     for category in CATEGORIES:
-        st.markdown(f"- `{category}`")
+        st.write(f"• {category}")
 
     st.divider()
 
-    st.markdown(
-        """
-        **Flujo sugerido**
-        1. Subir archivos  
-        2. Generar inventario  
-        3. Revisar categorías  
-        4. Exportar CSV o ZIP organizado  
-        """
+    st.caption(
+        "Versión liviana para Streamlit Cloud. "
+        "Usa reglas locales, sin API externa y sin PyMuPDF."
     )
 
 uploaded_files = st.file_uploader(
@@ -521,57 +509,43 @@ uploaded_files = st.file_uploader(
         "png",
         "webp",
         "gif",
-        "tiff",
         "tif",
+        "tiff",
         "jp2",
         "ai",
+        "psd",
+        "indd",
     ],
 )
 
 if not uploaded_files:
-    st.info("Subí uno o varios archivos para empezar.")
+    st.info("Subí uno o varios archivos para comenzar.")
     st.stop()
 
 st.success(f"Archivos cargados: {len(uploaded_files)}")
 
-if "inventory_df" not in st.session_state:
-    st.session_state.inventory_df = None
+if "inventory" not in st.session_state:
+    st.session_state["inventory"] = None
 
-col_a, col_b = st.columns([1, 3])
+if st.button("Generar inventario", type="primary"):
+    with st.spinner("Leyendo y clasificando archivos..."):
+        st.session_state["inventory"] = build_inventory(uploaded_files)
 
-with col_a:
-    if st.button("Generar inventario", type="primary"):
-        with st.spinner("Leyendo archivos y clasificando..."):
-            st.session_state.inventory_df = create_inventory(uploaded_files)
-
-with col_b:
-    st.markdown(
-        "La clasificación es automática por reglas. Después podés corregir la columna `categoria_final`."
-    )
-
-if st.session_state.inventory_df is None:
+if st.session_state["inventory"] is None:
     st.stop()
 
-df = st.session_state.inventory_df.copy()
+df = st.session_state["inventory"]
 
-# Métricas
 st.subheader("Resumen")
 
-summary = (
-    df.groupby("categoria_final")
-    .size()
-    .reset_index(name="cantidad")
-    .sort_values("categoria_final")
-)
+cols = st.columns(len(CATEGORIES))
 
-metric_cols = st.columns(len(CATEGORIES))
-for idx, category in enumerate(CATEGORIES):
-    count = int(summary.loc[summary["categoria_final"] == category, "cantidad"].sum())
-    metric_cols[idx].metric(category.replace("_", " "), count)
+for index, category in enumerate(CATEGORIES):
+    count = int((df["categoria_final"] == category).sum())
+    cols[index].metric(category.replace("_", " "), count)
 
 st.divider()
 
-# Tabla editable
 st.subheader("Revisión manual")
 
 edited_df = st.data_editor(
@@ -580,17 +554,13 @@ edited_df = st.data_editor(
     num_rows="fixed",
     column_config={
         "categoria_final": st.column_config.SelectboxColumn(
-            "categoria_final",
+            "Categoría final",
             options=CATEGORIES,
             required=True,
         ),
-        "preview_texto": st.column_config.TextColumn(
-            "preview_texto",
+        "preview": st.column_config.TextColumn(
+            "Preview",
             width="large",
-        ),
-        "motivo": st.column_config.TextColumn(
-            "motivo",
-            width="medium",
         ),
     },
     disabled=[
@@ -602,19 +572,18 @@ edited_df = st.data_editor(
         "score",
         "tags",
         "motivo",
-        "preview_texto",
+        "preview",
     ],
 )
 
-st.session_state.inventory_df = edited_df
+st.session_state["inventory"] = edited_df
 
 st.divider()
 
-# Filtros y preview
-st.subheader("Explorar por categoría")
+st.subheader("Filtrar resultado")
 
 selected_category = st.selectbox(
-    "Filtrar categoría",
+    "Categoría",
     ["Todas"] + CATEGORIES,
 )
 
@@ -630,6 +599,7 @@ st.dataframe(
             "extension",
             "categoria_sugerida",
             "categoria_final",
+            "score",
             "tags",
             "motivo",
         ]
@@ -639,34 +609,34 @@ st.dataframe(
 
 st.divider()
 
-# Exportaciones
 st.subheader("Exportar")
 
-csv_bytes = make_csv_download(edited_df)
+csv_bytes = edited_df.to_csv(index=False).encode("utf-8-sig")
+
 st.download_button(
-    label="Descargar inventario CSV",
+    "Descargar inventario CSV",
     data=csv_bytes,
     file_name="inventario_casa_matriz.csv",
     mime="text/csv",
 )
 
-structure_txt = generate_structure_txt(edited_df)
+structure_text = generate_structure_text(edited_df)
+
 st.download_button(
-    label="Descargar estructura TXT",
-    data=structure_txt.encode("utf-8"),
+    "Descargar estructura TXT",
+    data=structure_text.encode("utf-8"),
     file_name="estructura_propuesta_casa_matriz.txt",
     mime="text/plain",
 )
 
-zip_bytes = build_zip_from_inventory(uploaded_files, edited_df)
+zip_bytes = build_zip(uploaded_files, edited_df)
+
 st.download_button(
-    label="Descargar ZIP organizado",
+    "Descargar ZIP organizado",
     data=zip_bytes,
     file_name="casa_matriz_organizado.zip",
     mime="application/zip",
 )
 
-st.divider()
-
 with st.expander("Ver estructura propuesta"):
-    st.code(structure_txt, language="text")
+    st.code(structure_text, language="text")
