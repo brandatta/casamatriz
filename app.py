@@ -44,6 +44,17 @@ CATEGORY_DESCRIPTIONS = {
     "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS": "Imágenes, recursos visuales, links, referencias editoriales y diseño.",
 }
 
+NAV_ITEMS = {
+    "🏠 Inicio / Subir archivos": "home",
+    "📁 Identidad, marca y estrategia": "01_IDENTIDAD_MARCA_Y_ESTRATEGIA",
+    "📁 Obra autoral, ensayos y borradores": "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES",
+    "📁 Cursos, formación y archivo astrológico": "03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO",
+    "📁 Bibliografía, investigación y fuentes": "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES",
+    "📁 Archivo visual, editorial y referencias": "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS",
+    "📋 Inventario general": "inventory",
+    "📦 Exportar": "export",
+}
+
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff", ".jp2"
 }
@@ -51,7 +62,6 @@ IMAGE_EXTENSIONS = {
 DESIGN_EXTENSIONS = {
     ".ai", ".psd", ".indd"
 }
-
 
 RULES = {
     "01_IDENTIDAD_MARCA_Y_ESTRATEGIA": [
@@ -202,7 +212,6 @@ def extract_text(filename: str, file_bytes: bytes) -> str:
 def word_count(text: str) -> int:
     if not text or text.startswith("["):
         return 0
-
     return len(re.findall(r"\b\w+\b", text))
 
 
@@ -301,7 +310,7 @@ def file_icon(extension: str) -> str:
         return "📕"
     if extension == ".docx":
         return "📄"
-    if extension in [".txt", ".md"]:
+    if extension in [".txt", ".md", ".odt"]:
         return "📝"
     if extension in DESIGN_EXTENSIONS:
         return "🎨"
@@ -399,7 +408,6 @@ def generate_structure_text() -> str:
 
 def build_zip() -> bytes:
     zip_buffer = io.BytesIO()
-
     df = files_to_dataframe()
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -433,6 +441,13 @@ def clear_all_files() -> None:
     st.session_state["files"] = []
 
 
+def get_items_by_category(category: str) -> list[dict]:
+    return [
+        item for item in st.session_state["files"]
+        if item["categoria_final"] == category
+    ]
+
+
 # ============================================================
 # SESSION STATE
 # ============================================================
@@ -442,124 +457,106 @@ if "files" not in st.session_state:
 
 
 # ============================================================
-# UI
+# SIDEBAR NAV
 # ============================================================
 
-st.title("🗂️ Casa Matriz | Archivo organizado")
+st.sidebar.title("🗂️ Casa Matriz")
+st.sidebar.caption("Archivo organizado")
 
-st.write(
-    "Subí archivos y la app los va ubicando automáticamente en sus secciones. "
-    "Podés corregir la categoría final y descargar el archivo organizado."
+selected_nav_label = st.sidebar.radio(
+    "Navegación",
+    list(NAV_ITEMS.keys()),
 )
 
-with st.sidebar:
-    st.header("Secciones")
+selected_page = NAV_ITEMS[selected_nav_label]
 
-    for category in CATEGORIES:
-        st.markdown(f"**{CATEGORY_LABELS[category]}**")
-        st.caption(CATEGORY_DESCRIPTIONS[category])
+st.sidebar.divider()
 
-    st.divider()
+total_files = len(st.session_state["files"])
+st.sidebar.metric("Archivos cargados", total_files)
 
-    if st.button("Vaciar archivos cargados"):
-        clear_all_files()
-        st.rerun()
+for category in CATEGORIES:
+    count = len(get_items_by_category(category))
+    st.sidebar.caption(f"{CATEGORY_LABELS[category]}: {count}")
 
-uploaded_files = st.file_uploader(
-    "Subir archivos",
-    accept_multiple_files=True,
-    type=[
-        "docx", "pdf", "txt", "md", "odt",
-        "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "jp2",
-        "ai", "psd", "indd",
-    ],
-)
+st.sidebar.divider()
 
-if uploaded_files:
-    add_files_to_session(uploaded_files)
-    st.success(f"Archivos cargados en esta sesión: {len(st.session_state['files'])}")
+if st.sidebar.button("Vaciar archivos cargados"):
+    clear_all_files()
+    st.rerun()
 
-if not st.session_state["files"]:
-    st.info("Todavía no hay archivos cargados.")
+
+# ============================================================
+# HOME / UPLOAD
+# ============================================================
+
+if selected_page == "home":
+    st.title("🗂️ Casa Matriz | Archivo organizado")
+
+    st.write(
+        "Subí archivos y la app los ubica automáticamente en una de las cinco secciones. "
+        "Después podés entrar a cada sección desde el menú lateral para ver sus archivos."
+    )
+
+    uploaded_files = st.file_uploader(
+        "Subir archivos",
+        accept_multiple_files=True,
+        type=[
+            "docx", "pdf", "txt", "md", "odt",
+            "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "jp2",
+            "ai", "psd", "indd",
+        ],
+    )
+
+    if uploaded_files:
+        add_files_to_session(uploaded_files)
+        st.success(f"Archivos cargados en esta sesión: {len(st.session_state['files'])}")
+
+    st.subheader("Secciones")
+
+    cols = st.columns(5)
+
+    for idx, category in enumerate(CATEGORIES):
+        with cols[idx]:
+            count = len(get_items_by_category(category))
+            st.metric(CATEGORY_LABELS[category], count)
+            st.caption(CATEGORY_DESCRIPTIONS[category])
+
+    st.info("Para ver los archivos de cada categoría, hacé click en la sección correspondiente del menú lateral.")
+
     st.stop()
 
 
 # ============================================================
-# RESUMEN
+# CATEGORY PAGE
 # ============================================================
 
-st.subheader("Resumen general")
+if selected_page in CATEGORIES:
+    category = selected_page
+    items = get_items_by_category(category)
 
-summary_cols = st.columns(len(CATEGORIES))
-
-for index, category in enumerate(CATEGORIES):
-    count = sum(
-        1 for item in st.session_state["files"]
-        if item["categoria_final"] == category
-    )
-    summary_cols[index].metric(CATEGORY_LABELS[category], count)
-
-st.divider()
-
-
-# ============================================================
-# EDICIÓN GLOBAL
-# ============================================================
-
-st.subheader("Revisión y corrección")
-
-df = files_to_dataframe()
-
-edited_df = st.data_editor(
-    df,
-    use_container_width=True,
-    num_rows="fixed",
-    column_config={
-        "categoria_final": st.column_config.SelectboxColumn(
-            "Categoría final",
-            options=CATEGORIES,
-            required=True,
-        ),
-        "preview": st.column_config.TextColumn("Preview", width="large"),
-    },
-    disabled=[
-        "archivo",
-        "extension",
-        "tamano_kb",
-        "palabras_extraidas",
-        "categoria_sugerida",
-        "score",
-        "tags",
-        "motivo",
-        "preview",
-        "uploaded_at",
-    ],
-)
-
-apply_category_edits(edited_df)
-
-st.divider()
-
-
-# ============================================================
-# SITIO ORGANIZADO POR CATEGORÍAS
-# ============================================================
-
-st.subheader("Archivo organizado por secciones")
-
-for category in CATEGORIES:
-    items = [
-        item for item in st.session_state["files"]
-        if item["categoria_final"] == category
-    ]
-
-    st.markdown(f"## {CATEGORY_LABELS[category]}")
+    st.title(f"📁 {CATEGORY_LABELS[category]}")
     st.caption(CATEGORY_DESCRIPTIONS[category])
 
+    st.metric("Archivos en esta sección", len(items))
+
     if not items:
-        st.info("Sin archivos en esta sección.")
-        st.divider()
-        continue
+        st.info("Todavía no hay archivos en esta sección.")
+        st.stop()
+
+    search = st.text_input("Buscar dentro de esta sección", "")
+
+    if search:
+        search_norm = normalize(search)
+        items = [
+            item for item in items
+            if search_norm in normalize(item["archivo"])
+            or search_norm in normalize(item["tags"])
+            or search_norm in normalize(item["motivo"])
+            or search_norm in normalize(item["preview"])
+        ]
+
+    st.write(f"Mostrando {len(items)} archivo(s).")
 
     cols = st.columns(3)
 
@@ -580,17 +577,29 @@ for category in CATEGORIES:
                     st.markdown(f"**Tags:** `{item['tags']}`")
 
                 st.markdown(f"**Motivo:** {item['motivo']}")
+                st.caption(f"Subido: {item['uploaded_at']}")
 
                 if item["preview"] and not item["preview"].startswith("[IMAGEN]"):
                     with st.expander("Preview"):
                         st.write(item["preview"])
 
                 st.download_button(
-                    "Descargar archivo",
+                    "Descargar",
                     data=item["bytes"],
                     file_name=item["archivo"],
                     key=f"download_{category}_{index}_{item['archivo']}",
                 )
+
+                new_category = st.selectbox(
+                    "Mover a categoría",
+                    CATEGORIES,
+                    index=CATEGORIES.index(item["categoria_final"]),
+                    key=f"move_{category}_{index}_{item['archivo']}",
+                )
+
+                if new_category != item["categoria_final"]:
+                    item["categoria_final"] = new_category
+                    st.rerun()
 
                 if st.button(
                     "Quitar",
@@ -599,46 +608,97 @@ for category in CATEGORIES:
                     remove_file(item["archivo"])
                     st.rerun()
 
-    st.divider()
+    st.stop()
 
 
 # ============================================================
-# EXPORTACIÓN
+# INVENTORY PAGE
 # ============================================================
 
-st.subheader("Exportar archivo organizado")
+if selected_page == "inventory":
+    st.title("📋 Inventario general")
 
-final_df = files_to_dataframe()
+    if not st.session_state["files"]:
+        st.info("Todavía no hay archivos cargados.")
+        st.stop()
 
-csv_bytes = final_df.to_csv(index=False).encode("utf-8-sig")
-structure_text = generate_structure_text()
-zip_bytes = build_zip()
+    df = files_to_dataframe()
 
-export_cols = st.columns(3)
-
-with export_cols[0]:
-    st.download_button(
-        "Descargar inventario CSV",
-        data=csv_bytes,
-        file_name="inventario_casa_matriz.csv",
-        mime="text/csv",
+    edited_df = st.data_editor(
+        df,
+        use_container_width=True,
+        num_rows="fixed",
+        column_config={
+            "categoria_final": st.column_config.SelectboxColumn(
+                "Categoría final",
+                options=CATEGORIES,
+                required=True,
+            ),
+            "preview": st.column_config.TextColumn("Preview", width="large"),
+        },
+        disabled=[
+            "archivo",
+            "extension",
+            "tamano_kb",
+            "palabras_extraidas",
+            "categoria_sugerida",
+            "score",
+            "tags",
+            "motivo",
+            "preview",
+            "uploaded_at",
+        ],
     )
 
-with export_cols[1]:
-    st.download_button(
-        "Descargar estructura TXT",
-        data=structure_text.encode("utf-8"),
-        file_name="estructura_propuesta_casa_matriz.txt",
-        mime="text/plain",
-    )
+    apply_category_edits(edited_df)
 
-with export_cols[2]:
-    st.download_button(
-        "Descargar ZIP organizado",
-        data=zip_bytes,
-        file_name="casa_matriz_organizado.zip",
-        mime="application/zip",
-    )
+    st.stop()
 
-with st.expander("Ver estructura propuesta"):
-    st.code(structure_text, language="text")
+
+# ============================================================
+# EXPORT PAGE
+# ============================================================
+
+if selected_page == "export":
+    st.title("📦 Exportar archivo organizado")
+
+    if not st.session_state["files"]:
+        st.info("Todavía no hay archivos cargados.")
+        st.stop()
+
+    final_df = files_to_dataframe()
+
+    csv_bytes = final_df.to_csv(index=False).encode("utf-8-sig")
+    structure_text = generate_structure_text()
+    zip_bytes = build_zip()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.download_button(
+            "Descargar inventario CSV",
+            data=csv_bytes,
+            file_name="inventario_casa_matriz.csv",
+            mime="text/csv",
+        )
+
+    with col2:
+        st.download_button(
+            "Descargar estructura TXT",
+            data=structure_text.encode("utf-8"),
+            file_name="estructura_propuesta_casa_matriz.txt",
+            mime="text/plain",
+        )
+
+    with col3:
+        st.download_button(
+            "Descargar ZIP organizado",
+            data=zip_bytes,
+            file_name="casa_matriz_organizado.zip",
+            mime="application/zip",
+        )
+
+    with st.expander("Ver estructura propuesta"):
+        st.code(structure_text, language="text")
+
+    st.stop()
