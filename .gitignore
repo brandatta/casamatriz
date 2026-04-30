@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Archivos de usuario
+input_files/
+output_organizado/
+uploads/
+*.zip
+
+# Inventarios generados
+inventario_casa_matriz.csv
+estructura_propuesta_casa_matriz.txt
+casa_matriz_organizado.zip
+
+# Sistema
+.DS_Store
+Thumbs.db
