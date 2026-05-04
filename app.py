@@ -405,8 +405,8 @@ def extract_docx(file_bytes: bytes) -> str:
 
 def extract_pdf(file_bytes: bytes, max_pages: int = 5) -> str:
     """
-    Para PDFs, se extraen pocas páginas porque por defecto van a Bibliografía.
-    Esto evita procesamiento innecesario en archivos grandes.
+    Se mantiene para preview/tags si en algún momento se necesita,
+    pero la clasificación de PDF es absoluta a Bibliografía.
     """
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
@@ -561,6 +561,21 @@ def classify_file(filename: str, text: str):
         )
 
     return best_category, best_score, "; ".join(reasons[best_category][:4])
+
+
+def file_icon(extension: str) -> str:
+    if extension in IMAGE_EXTENSIONS:
+        return "🖼️"
+    if extension == ".pdf":
+        return "📕"
+    if extension == ".docx":
+        return "📄"
+    if extension in [".txt", ".md"]:
+        return "📝"
+    if extension in DESIGN_EXTENSIONS:
+        return "🎨"
+    return "📎"
+
 
 # ============================================================
 # INVENTORY
@@ -833,8 +848,7 @@ if selected_page == "home":
     )
 
     st.info(
-        "Regla actual: los PDFs van por defecto a Bibliografía / investigación / fuentes, "
-        "salvo que el nombre indique claramente otra sección."
+        "Regla actual: todo PDF va siempre a Bibliografía / investigación / fuentes."
     )
 
     uploaded_files = st.file_uploader(
