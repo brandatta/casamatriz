@@ -66,43 +66,130 @@ DESIGN_EXTENSIONS = {
 
 RULES = {
     "01_IDENTIDAD_MARCA_Y_ESTRATEGIA": [
-        "casa matriz", "proyecto integral", "manifiesto", "fundamentos",
-        "marca", "identidad", "estrategia", "nombres", "tagline",
-        "estructura", "talleres", "publicaciones", "matrices",
-        "mediatrices", "editable marcas", "landing", "web",
+        "casa matriz",
+        "proyecto integral",
+        "manifiesto",
+        "fundamentos",
+        "marca",
+        "identidad",
+        "estrategia",
+        "nombres",
+        "tagline",
+        "estructura",
+        "talleres",
+        "publicaciones",
+        "matrices",
+        "mediatrices",
+        "editable marcas",
+        "landing",
+        "web",
     ],
     "02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES": [
-        "ensayo", "cosmos", "core", "pliegues", "habitar", "venus",
-        "buena astrologa", "ideas", "otros titulos", "varios",
-        "adorno", "foucault", "hermeneutica", "mujeres",
-        "giro copernicano", "fragmento", "borrador", "dossier",
-        "cuerpo", "metamorfosis", "oscuridad", "sirenas",
+        "ensayo",
+        "cosmos",
+        "core",
+        "pliegues",
+        "habitar",
+        "venus",
+        "buena astrologa",
+        "ideas",
+        "otros titulos",
+        "varios",
+        "adorno",
+        "foucault",
+        "hermeneutica",
+        "mujeres",
+        "giro copernicano",
+        "fragmento",
+        "borrador",
+        "dossier",
+        "cuerpo",
+        "metamorfosis",
+        "oscuridad",
+        "sirenas",
         "criptozoologia",
     ],
     "03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO": [
-        "curso", "formacion", "certificacion", "luminarias",
-        "sol y luna", "intro curso", "preview", "material adicional",
-        "seminario", "volver a la luna", "transcripcion", "horoscono",
-        "ernesto castro", "arquetipo", "lunar", "solar",
-        "astrologia", "carta natal", "zodiaco", "tauro", "libra",
+        "curso",
+        "formacion",
+        "certificacion",
+        "luminarias",
+        "sol y luna",
+        "intro curso",
+        "preview",
+        "material adicional",
+        "seminario",
+        "volver a la luna",
+        "transcripcion",
+        "horoscono",
+        "ernesto castro",
+        "arquetipo",
+        "lunar",
+        "solar",
+        "astrologia",
+        "carta natal",
+        "zodiaco",
+        "tauro",
+        "libra",
         "luna astrologica",
     ],
     "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES": [
-        "bibliografia", "tesis", "thesis", "phd", "startup",
-        "phillipson", "clynes", "von stuckrad", "astrology and truth",
-        "internet on modern western astrology", "historia", "borges",
-        "seres imaginarios", "libro de los seres", "fuente", "paper",
-        "research", "epistemology", "references", "bibliography",
-        "university", "submitted", "abstract", "table of contents",
+        "bibliografia",
+        "tesis",
+        "thesis",
+        "phd",
+        "startup",
+        "phillipson",
+        "clynes",
+        "von stuckrad",
+        "astrology and truth",
+        "internet on modern western astrology",
+        "historia",
+        "borges",
+        "seres imaginarios",
+        "libro de los seres",
+        "fuente",
+        "paper",
+        "research",
+        "epistemology",
+        "references",
+        "bibliography",
+        "university",
+        "submitted",
+        "abstract",
+        "table of contents",
+        "libro",
+        "book",
+        "journal",
+        "chapter",
     ],
     "05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS": [
-        "cabinet", "wonders", "collection", "coleccion ilustrada",
-        "links", "rawpixel", "dragon", "utagawa", "kuniyoshi",
-        "imagen", "visual", "referencia", "archivo visual",
-        "public domain", "wellcome", "british library",
-        "library of congress", "grabado", "manuscrito", "sketchbook",
-        "stephan scriber", "ilustrada", "ilustrado", "editorial",
-        "wunderkammer", "kunstkammer",
+        "cabinet",
+        "wonders",
+        "collection",
+        "coleccion ilustrada",
+        "links",
+        "rawpixel",
+        "dragon",
+        "utagawa",
+        "kuniyoshi",
+        "imagen",
+        "visual",
+        "referencia",
+        "archivo visual",
+        "public domain",
+        "wellcome",
+        "british library",
+        "library of congress",
+        "grabado",
+        "manuscrito",
+        "sketchbook",
+        "stephan scriber",
+        "ilustrada",
+        "ilustrado",
+        "editorial",
+        "wunderkammer",
+        "kunstkammer",
     ],
 }
 
@@ -136,7 +223,7 @@ def github_headers():
 
 def github_api_url(path: str) -> str:
     _, repo, _ = get_github_config()
-    encoded_path = quote(path)
+    encoded_path = quote(path, safe="")
     return f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
 
 
@@ -197,7 +284,7 @@ def github_put_file(path: str, file_bytes: bytes, message: str):
         github_api_url(path),
         headers=github_headers(),
         json=payload,
-        timeout=60,
+        timeout=90,
     )
 
     response.raise_for_status()
@@ -242,6 +329,26 @@ def github_download_file(path: str) -> bytes:
         return base64.b64decode(content)
 
     raise ValueError(f"No se pudo decodificar {path}")
+
+
+def github_move_file(old_path: str, new_path: str, file_bytes: bytes, filename: str):
+    """
+    GitHub Contents API no tiene move nativo.
+    Se hace put en nuevo path y delete en path viejo.
+    """
+    if old_path == new_path:
+        return
+
+    github_put_file(
+        new_path,
+        file_bytes,
+        f"Mover {filename} a {new_path}",
+    )
+
+    github_delete_file(
+        old_path,
+        f"Eliminar ubicación anterior de {filename}",
+    )
 
 
 # ============================================================
@@ -296,7 +403,11 @@ def extract_docx(file_bytes: bytes) -> str:
         return f"[ERROR_DOCX] {error}"
 
 
-def extract_pdf(file_bytes: bytes, max_pages: int = 10) -> str:
+def extract_pdf(file_bytes: bytes, max_pages: int = 5) -> str:
+    """
+    Para PDFs, se extraen pocas páginas porque por defecto van a Bibliografía.
+    Esto evita procesamiento innecesario en archivos grandes.
+    """
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
         parts = []
@@ -365,7 +476,7 @@ def detect_tags(text: str) -> str:
         "imagen": ["imagen", "visual", "grabado", "manuscrito", "ilustracion"],
         "marca": ["marca", "identidad", "logo", "tagline"],
         "curso": ["curso", "clase", "certificacion", "material adicional"],
-        "bibliografia": ["bibliografia", "references", "bibliography"],
+        "bibliografia": ["bibliografia", "references", "bibliography", "tesis", "thesis", "paper"],
         "tesis": ["tesis", "thesis", "phd"],
         "ensayo": ["ensayo", "dossier", "texto"],
         "editorial": ["editorial", "coleccion", "cabinet", "wonders"],
@@ -396,29 +507,28 @@ def classify_file(filename: str, text: str):
     # DEFAULTS FUERTES POR EXTENSIÓN
     # ------------------------------------------------------------
 
-    # Imágenes y archivos de diseño: por defecto a archivo visual.
     if extension in IMAGE_EXTENSIONS:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 25
+        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 30
         reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
             f"archivo visual {extension}"
         )
 
     if extension in DESIGN_EXTENSIONS:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 25
+        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 30
         reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
             f"archivo de diseño {extension}"
         )
 
-    # PDFs: por defecto a bibliografía/fuentes.
-    # Solo se moverán a otra categoría si hay señales muy claras.
+    # Regla principal pedida:
+    # Todo PDF va a Bibliografía por defecto, salvo casos MUY obvios.
     if extension == ".pdf":
-        scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 18
+        scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 40
         reasons["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"].append(
             "PDF por defecto clasificado como bibliografía/fuente"
         )
 
     # ------------------------------------------------------------
-    # REGLAS POR KEYWORDS
+    # KEYWORDS GENERALES
     # ------------------------------------------------------------
 
     for category, keywords in RULES.items():
@@ -426,27 +536,28 @@ def classify_file(filename: str, text: str):
             keyword_normalized = normalize(keyword)
 
             if keyword_normalized in normalized_name:
-                # El nombre pesa más que el contenido.
                 scores[category] += 8
                 reasons[category].append(f"nombre contiene '{keyword}'")
 
             elif keyword_normalized in normalized_text:
-                scores[category] += 3
+                # Para PDFs, el contenido pesa menos para que no se vayan a Obra Autoral
+                # solo porque adentro aparece "astrología", "imagen", etc.
+                if extension == ".pdf":
+                    scores[category] += 1
+                else:
+                    scores[category] += 3
+
                 reasons[category].append(f"contenido contiene '{keyword}'")
 
     # ------------------------------------------------------------
     # OVERRIDES MUY OBVIOS PARA PDFs
     # ------------------------------------------------------------
-    # Estos casos fuerzan una categoría distinta a bibliografía
-    # cuando el nombre del PDF es claramente pedagógico, visual,
-    # estratégico o autoral.
 
     if extension == ".pdf":
         obvious_course_terms = [
             "seminario",
             "curso",
             "certificacion",
-            "certificación",
             "material adicional",
             "preview",
             "luminarias",
@@ -458,17 +569,17 @@ def classify_file(filename: str, text: str):
         obvious_visual_terms = [
             "cabinet",
             "wonders",
-            "sketchbook",
             "catalogo",
-            "catálogo",
+            "catalogue",
             "imagen",
             "visual",
             "ilustrado",
             "ilustrada",
             "manuscrito",
             "dragon",
-            "dragón",
             "grabado",
+            "sketchbook",
+            "scriber",
         ]
 
         obvious_identity_terms = [
@@ -481,36 +592,34 @@ def classify_file(filename: str, text: str):
         ]
 
         obvious_author_terms = [
-            "cosmos",
+            "cosmos no existe",
             "core",
-            "pliegues",
-            "habitar",
-            "venus",
+            "habitar los pliegues",
+            "venus y su doble",
             "buena astrologa",
-            "buena astróloga",
-            "ensayo",
+            "ensayo propio",
         ]
 
-        if any(term in normalized_name for term in [normalize(t) for t in obvious_course_terms]):
-            scores["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"] += 30
+        if any(normalize(term) in normalized_name for term in obvious_course_terms):
+            scores["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"] += 60
             reasons["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"].append(
                 "PDF con nombre claramente asociado a curso/formación"
             )
 
-        if any(term in normalized_name for term in [normalize(t) for t in obvious_visual_terms]):
-            scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 30
+        if any(normalize(term) in normalized_name for term in obvious_visual_terms):
+            scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 60
             reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
                 "PDF con nombre claramente asociado a archivo visual/editorial"
             )
 
-        if any(term in normalized_name for term in [normalize(t) for t in obvious_identity_terms]):
-            scores["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"] += 30
+        if any(normalize(term) in normalized_name for term in obvious_identity_terms):
+            scores["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"] += 60
             reasons["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"].append(
                 "PDF con nombre claramente asociado a identidad/marca"
             )
 
-        if any(term in normalized_name for term in [normalize(t) for t in obvious_author_terms]):
-            scores["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"] += 30
+        if any(normalize(term) in normalized_name for term in obvious_author_terms):
+            scores["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"] += 60
             reasons["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"].append(
                 "PDF con nombre claramente asociado a obra autoral"
             )
@@ -531,6 +640,21 @@ def classify_file(filename: str, text: str):
 
     return best_category, best_score, "; ".join(reasons[best_category][:4])
 
+
+def file_icon(extension: str) -> str:
+    if extension in IMAGE_EXTENSIONS:
+        return "🖼️"
+    if extension == ".pdf":
+        return "📕"
+    if extension == ".docx":
+        return "📄"
+    if extension in [".txt", ".md"]:
+        return "📝"
+    if extension in DESIGN_EXTENSIONS:
+        return "🎨"
+    return "📎"
+
+
 # ============================================================
 # INVENTORY
 # ============================================================
@@ -538,25 +662,36 @@ def classify_file(filename: str, text: str):
 INVENTORY_PATH = "data/inventory.csv"
 
 
+def empty_inventory() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "archivo",
+            "extension",
+            "tamano_kb",
+            "categoria",
+            "path",
+            "score",
+            "tags",
+            "motivo",
+            "palabras_extraidas",
+            "uploaded_at",
+        ]
+    )
+
+
 def load_inventory() -> pd.DataFrame:
     try:
         file_bytes = github_download_file(INVENTORY_PATH)
-        return pd.read_csv(io.BytesIO(file_bytes))
+        df = pd.read_csv(io.BytesIO(file_bytes))
+
+        for col in empty_inventory().columns:
+            if col not in df.columns:
+                df[col] = ""
+
+        return df
+
     except Exception:
-        return pd.DataFrame(
-            columns=[
-                "archivo",
-                "extension",
-                "tamano_kb",
-                "categoria",
-                "path",
-                "score",
-                "tags",
-                "motivo",
-                "palabras_extraidas",
-                "uploaded_at",
-            ]
-        )
+        return empty_inventory()
 
 
 def save_inventory(df: pd.DataFrame):
@@ -571,8 +706,8 @@ def save_inventory(df: pd.DataFrame):
 def add_inventory_row(row: dict):
     df = load_inventory()
 
-    # Evita duplicados por path
-    df = df[df["path"] != row["path"]]
+    if not df.empty and "path" in df.columns:
+        df = df[df["path"] != row["path"]]
 
     df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
 
@@ -619,12 +754,91 @@ def rebuild_inventory_from_storage() -> pd.DataFrame:
                 }
             )
 
-    df = pd.DataFrame(rows)
+    if not rows:
+        return empty_inventory()
+
+    return pd.DataFrame(rows)
+
+
+def reclassify_and_move_existing_files() -> tuple[pd.DataFrame, list[str]]:
+    """
+    Lee el inventario actual, descarga cada archivo, reclasifica con las reglas actuales,
+    mueve el archivo si cambió de categoría y actualiza el inventario.
+    """
+    df = load_inventory()
 
     if df.empty:
-        df = load_inventory()
+        return df, ["No hay archivos para reclasificar."]
 
-    return df
+    updated_rows = []
+    logs = []
+
+    for _, row in df.iterrows():
+        old_path = str(row.get("path", ""))
+        filename = str(row.get("archivo", ""))
+
+        if not old_path or not filename:
+            logs.append(f"SKIP: fila inválida sin path o archivo: {row.to_dict()}")
+            continue
+
+        try:
+            file_bytes = github_download_file(old_path)
+        except Exception as error:
+            logs.append(f"ERROR descargando {filename}: {error}")
+            updated_rows.append(row.to_dict())
+            continue
+
+        extension = Path(filename).suffix.lower()
+
+        text = extract_text(filename, file_bytes)
+        new_category, score, reason = classify_file(filename, text)
+        tags = detect_tags(f"{filename} {text[:4000]}")
+
+        old_category = str(row.get("categoria", ""))
+        new_path = f"storage/{new_category}/{filename}"
+
+        if old_path != new_path:
+            try:
+                github_move_file(
+                    old_path=old_path,
+                    new_path=new_path,
+                    file_bytes=file_bytes,
+                    filename=filename,
+                )
+                logs.append(f"MOVIDO: {filename} | {old_category} → {new_category}")
+            except Exception as error:
+                logs.append(f"ERROR moviendo {filename}: {error}")
+                updated_rows.append(row.to_dict())
+                continue
+        else:
+            logs.append(f"OK: {filename} sigue en {new_category}")
+
+        updated_rows.append(
+            {
+                "archivo": filename,
+                "extension": extension,
+                "tamano_kb": round(len(file_bytes) / 1024, 2),
+                "categoria": new_category,
+                "path": new_path,
+                "score": score,
+                "tags": tags,
+                "motivo": reason,
+                "palabras_extraidas": word_count(text),
+                "uploaded_at": row.get("uploaded_at", ""),
+            }
+        )
+
+    new_df = pd.DataFrame(updated_rows)
+
+    for col in empty_inventory().columns:
+        if col not in new_df.columns:
+            new_df[col] = ""
+
+    new_df = new_df[empty_inventory().columns]
+
+    save_inventory(new_df)
+
+    return new_df, logs
 
 
 # ============================================================
@@ -632,10 +846,10 @@ def rebuild_inventory_from_storage() -> pd.DataFrame:
 # ============================================================
 
 def render_file_card(row):
-    extension = row.get("extension", "")
+    extension = str(row.get("extension", ""))
     icon = file_icon(extension)
-    filename = row.get("archivo", "")
-    path = row.get("path", "")
+    filename = str(row.get("archivo", ""))
+    path = str(row.get("path", ""))
 
     with st.container(border=True):
         st.markdown(f"### {icon} {filename}")
@@ -645,13 +859,13 @@ def render_file_card(row):
             f"{row.get('palabras_extraidas', '')} palabras"
         )
 
-        if row.get("tags"):
+        if str(row.get("tags", "")).strip():
             st.markdown(f"**Tags:** `{row.get('tags')}`")
 
-        if row.get("motivo"):
+        if str(row.get("motivo", "")).strip():
             st.markdown(f"**Motivo:** {row.get('motivo')}")
 
-        if row.get("uploaded_at"):
+        if str(row.get("uploaded_at", "")).strip():
             st.caption(f"Subido: {row.get('uploaded_at')}")
 
         try:
@@ -712,8 +926,8 @@ if selected_page == "home":
     )
 
     st.info(
-        "Los archivos se guardan en el repo, dentro de `/storage/<categoria>/`. "
-        "Luego quedan visibles en cada sección del sitio."
+        "Regla actual: los PDFs van por defecto a Bibliografía / investigación / fuentes, "
+        "salvo que el nombre indique claramente otra sección."
     )
 
     uploaded_files = st.file_uploader(
@@ -832,14 +1046,29 @@ if selected_page in CATEGORIES:
 if selected_page == "inventory":
     st.title("📋 Inventario general")
 
-    col_a, col_b = st.columns([1, 3])
+    st.warning(
+        "Si cambiaste reglas de clasificación, usá 'Reclasificar y mover archivos existentes' "
+        "para aplicar la lógica nueva a los archivos ya subidos."
+    )
+
+    col_a, col_b = st.columns([1, 1])
 
     with col_a:
         if st.button("Reconstruir inventario desde GitHub"):
             with st.spinner("Leyendo storage desde GitHub..."):
                 rebuilt = rebuild_inventory_from_storage()
                 save_inventory(rebuilt)
-                st.success("Inventario reconstruido.")
+                st.success("Inventario reconstruido desde carpetas actuales.")
+                st.rerun()
+
+    with col_b:
+        if st.button("Reclasificar y mover archivos existentes", type="primary"):
+            with st.spinner("Reclasificando archivos y moviendo carpetas en GitHub..."):
+                new_df, logs = reclassify_and_move_existing_files()
+                st.success("Reclasificación finalizada.")
+                with st.expander("Ver log de reclasificación", expanded=True):
+                    for line in logs:
+                        st.write(line)
                 st.rerun()
 
     inventory_df = load_inventory()
