@@ -405,8 +405,8 @@ def extract_docx(file_bytes: bytes) -> str:
 
 def extract_pdf(file_bytes: bytes, max_pages: int = 5) -> str:
     """
-    Se mantiene para preview/tags si en algún momento se necesita,
-    pero la clasificación de PDF es absoluta a Bibliografía.
+    Se mantiene para tags/metadatos si alguna vez se usa.
+    La clasificación de PDF es absoluta a Bibliografía.
     """
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
@@ -648,6 +648,12 @@ def remove_inventory_path(path: str):
 
 
 def rebuild_inventory_from_storage() -> pd.DataFrame:
+    """
+    Reconstruye el inventario desde las carpetas reales de GitHub.
+    Ojo: esta función NO mueve archivos.
+    Pero si encuentra un PDF en carpeta incorrecta, lo marca como Bibliografía en el inventario.
+    Para mover físicamente PDFs, usar force_move_all_pdfs_to_bibliography().
+    """
     rows = []
 
     for category in CATEGORIES:
@@ -661,16 +667,26 @@ def rebuild_inventory_from_storage() -> pd.DataFrame:
             extension = Path(filename).suffix.lower()
             path = item["path"]
 
+            final_category = (
+                "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"
+                if extension == ".pdf"
+                else category
+            )
+
             rows.append(
                 {
                     "archivo": filename,
                     "extension": extension,
                     "tamano_kb": round(item.get("size", 0) / 1024, 2),
-                    "categoria": category,
+                    "categoria": final_category,
                     "path": path,
-                    "score": "",
-                    "tags": "",
-                    "motivo": "detectado desde GitHub storage",
+                    "score": 999 if extension == ".pdf" else "",
+                    "tags": "bibliografia" if extension == ".pdf" else "",
+                    "motivo": (
+                        "PDF clasificado automáticamente como bibliografía/fuente"
+                        if extension == ".pdf"
+                        else "detectado desde GitHub storage"
+                    ),
                     "palabras_extraidas": "",
                     "uploaded_at": "",
                 }
@@ -761,6 +777,57 @@ def reclassify_and_move_existing_files() -> tuple[pd.DataFrame, list[str]]:
     save_inventory(new_df)
 
     return new_df, logs
+
+
+def force_move_all_pdfs_to_bibliography() -> tuple[pd.DataFrame, list[str]]:
+    """
+    Escanea directamente todas las carpetas storage/* en GitHub.
+    Si encuentra PDFs fuera de Bibliografía, los mueve físicamente.
+    Luego reconstruye y guarda el inventario.
+    No depende del inventario actual.
+    """
+    target_category = "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"
+    logs = []
+
+    for category in CATEGORIES:
+        contents = github_list_dir(f"storage/{category}")
+
+        for item in contents:
+            if item.get("type") != "file":
+                continue
+
+            filename = item["name"]
+            extension = Path(filename).suffix.lower()
+            old_path = item["path"]
+
+            if extension != ".pdf":
+                continue
+
+            new_path = f"storage/{target_category}/{filename}"
+
+            if old_path == new_path:
+                logs.append(f"OK: {filename} ya está en Bibliografía")
+                continue
+
+            try:
+                file_bytes = github_download_file(old_path)
+
+                github_move_file(
+                    old_path=old_path,
+                    new_path=new_path,
+                    file_bytes=file_bytes,
+                    filename=filename,
+                )
+
+                logs.append(f"MOVIDO PDF: {filename} | {category} → {target_category}")
+
+            except Exception as error:
+                logs.append(f"ERROR moviendo {filename}: {error}")
+
+    rebuilt = rebuild_inventory_from_storage()
+    save_inventory(rebuilt)
+
+    return rebuilt, logs
 
 
 # ============================================================
@@ -968,11 +1035,12 @@ if selected_page == "inventory":
     st.title("📋 Inventario general")
 
     st.warning(
-        "Si cambiaste reglas de clasificación, usá 'Reclasificar y mover archivos existentes' "
-        "para aplicar la lógica nueva a los archivos ya subidos."
+        "Si todavía ves PDFs en secciones incorrectas, usá primero "
+        "'Forzar PDFs a Bibliografía'. Ese botón escanea las carpetas reales de GitHub "
+        "y no depende del inventario."
     )
 
-    col_a, col_b = st.columns([1, 1])
+    col_a, col_b, col_c = st.columns([1, 1, 1])
 
     with col_a:
         if st.button("Reconstruir inventario desde GitHub"):
@@ -988,6 +1056,16 @@ if selected_page == "inventory":
                 new_df, logs = reclassify_and_move_existing_files()
                 st.success("Reclasificación finalizada.")
                 with st.expander("Ver log de reclasificación", expanded=True):
+                    for line in logs:
+                        st.write(line)
+                st.rerun()
+
+    with col_c:
+        if st.button("Forzar PDFs a Bibliografía"):
+            with st.spinner("Buscando PDFs en todas las carpetas y moviéndolos a Bibliografía..."):
+                new_df, logs = force_move_all_pdfs_to_bibliography()
+                st.success("PDFs normalizados.")
+                with st.expander("Ver log de movimiento de PDFs", expanded=True):
                     for line in logs:
                         st.write(line)
                 st.rerun()
