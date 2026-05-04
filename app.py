@@ -392,40 +392,132 @@ def classify_file(filename: str, text: str):
     scores = {category: 0 for category in CATEGORIES}
     reasons = {category: [] for category in CATEGORIES}
 
+    # ------------------------------------------------------------
+    # DEFAULTS FUERTES POR EXTENSIÓN
+    # ------------------------------------------------------------
+
+    # Imágenes y archivos de diseño: por defecto a archivo visual.
     if extension in IMAGE_EXTENSIONS:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 20
+        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 25
         reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
             f"archivo visual {extension}"
         )
 
     if extension in DESIGN_EXTENSIONS:
-        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 18
+        scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 25
         reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
             f"archivo de diseño {extension}"
         )
 
+    # PDFs: por defecto a bibliografía/fuentes.
+    # Solo se moverán a otra categoría si hay señales muy claras.
     if extension == ".pdf":
-        academic_terms = [
-            "abstract", "thesis", "phd", "university",
-            "bibliography", "references", "table of contents", "submitted",
-        ]
-        if any(term in searchable for term in academic_terms):
-            scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 12
-            reasons["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"].append(
-                "estructura de tesis/paper/libro académico"
-            )
+        scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 18
+        reasons["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"].append(
+            "PDF por defecto clasificado como bibliografía/fuente"
+        )
+
+    # ------------------------------------------------------------
+    # REGLAS POR KEYWORDS
+    # ------------------------------------------------------------
 
     for category, keywords in RULES.items():
         for keyword in keywords:
             keyword_normalized = normalize(keyword)
 
             if keyword_normalized in normalized_name:
-                scores[category] += 6
+                # El nombre pesa más que el contenido.
+                scores[category] += 8
                 reasons[category].append(f"nombre contiene '{keyword}'")
 
             elif keyword_normalized in normalized_text:
                 scores[category] += 3
                 reasons[category].append(f"contenido contiene '{keyword}'")
+
+    # ------------------------------------------------------------
+    # OVERRIDES MUY OBVIOS PARA PDFs
+    # ------------------------------------------------------------
+    # Estos casos fuerzan una categoría distinta a bibliografía
+    # cuando el nombre del PDF es claramente pedagógico, visual,
+    # estratégico o autoral.
+
+    if extension == ".pdf":
+        obvious_course_terms = [
+            "seminario",
+            "curso",
+            "certificacion",
+            "certificación",
+            "material adicional",
+            "preview",
+            "luminarias",
+            "sol y luna",
+            "volver a la luna",
+            "clase",
+        ]
+
+        obvious_visual_terms = [
+            "cabinet",
+            "wonders",
+            "sketchbook",
+            "catalogo",
+            "catálogo",
+            "imagen",
+            "visual",
+            "ilustrado",
+            "ilustrada",
+            "manuscrito",
+            "dragon",
+            "dragón",
+            "grabado",
+        ]
+
+        obvious_identity_terms = [
+            "manifiesto",
+            "fundamentos",
+            "marca",
+            "identidad",
+            "proyecto integral",
+            "casa matriz",
+        ]
+
+        obvious_author_terms = [
+            "cosmos",
+            "core",
+            "pliegues",
+            "habitar",
+            "venus",
+            "buena astrologa",
+            "buena astróloga",
+            "ensayo",
+        ]
+
+        if any(term in normalized_name for term in [normalize(t) for t in obvious_course_terms]):
+            scores["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"] += 30
+            reasons["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"].append(
+                "PDF con nombre claramente asociado a curso/formación"
+            )
+
+        if any(term in normalized_name for term in [normalize(t) for t in obvious_visual_terms]):
+            scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 30
+            reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
+                "PDF con nombre claramente asociado a archivo visual/editorial"
+            )
+
+        if any(term in normalized_name for term in [normalize(t) for t in obvious_identity_terms]):
+            scores["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"] += 30
+            reasons["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"].append(
+                "PDF con nombre claramente asociado a identidad/marca"
+            )
+
+        if any(term in normalized_name for term in [normalize(t) for t in obvious_author_terms]):
+            scores["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"] += 30
+            reasons["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"].append(
+                "PDF con nombre claramente asociado a obra autoral"
+            )
+
+    # ------------------------------------------------------------
+    # SELECCIÓN FINAL
+    # ------------------------------------------------------------
 
     best_category = max(scores, key=scores.get)
     best_score = scores[best_category]
@@ -438,21 +530,6 @@ def classify_file(filename: str, text: str):
         )
 
     return best_category, best_score, "; ".join(reasons[best_category][:4])
-
-
-def file_icon(extension: str) -> str:
-    if extension in IMAGE_EXTENSIONS:
-        return "🖼️"
-    if extension == ".pdf":
-        return "📕"
-    if extension == ".docx":
-        return "📄"
-    if extension in [".txt", ".md"]:
-        return "📝"
-    if extension in DESIGN_EXTENSIONS:
-        return "🎨"
-    return "📎"
-
 
 # ============================================================
 # INVENTORY
