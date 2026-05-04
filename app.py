@@ -496,9 +496,20 @@ def detect_tags(text: str) -> str:
 def classify_file(filename: str, text: str):
     extension = Path(filename).suffix.lower()
 
+    # ------------------------------------------------------------
+    # REGLA ABSOLUTA
+    # ------------------------------------------------------------
+    # Todo PDF va siempre a Bibliografía / investigación / fuentes.
+    # No se evalúan keywords ni contenido para PDFs.
+    if extension == ".pdf":
+        return (
+            "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES",
+            999,
+            "PDF clasificado automáticamente como bibliografía/fuente",
+        )
+
     normalized_name = normalize(filename)
     normalized_text = normalize(text[:6000])
-    searchable = f"{normalized_name} {normalized_text}"
 
     scores = {category: 0 for category in CATEGORIES}
     reasons = {category: [] for category in CATEGORIES}
@@ -519,16 +530,8 @@ def classify_file(filename: str, text: str):
             f"archivo de diseño {extension}"
         )
 
-    # Regla principal pedida:
-    # Todo PDF va a Bibliografía por defecto, salvo casos MUY obvios.
-    if extension == ".pdf":
-        scores["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"] += 40
-        reasons["04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"].append(
-            "PDF por defecto clasificado como bibliografía/fuente"
-        )
-
     # ------------------------------------------------------------
-    # KEYWORDS GENERALES
+    # KEYWORDS GENERALES PARA NO-PDF
     # ------------------------------------------------------------
 
     for category, keywords in RULES.items():
@@ -540,89 +543,8 @@ def classify_file(filename: str, text: str):
                 reasons[category].append(f"nombre contiene '{keyword}'")
 
             elif keyword_normalized in normalized_text:
-                # Para PDFs, el contenido pesa menos para que no se vayan a Obra Autoral
-                # solo porque adentro aparece "astrología", "imagen", etc.
-                if extension == ".pdf":
-                    scores[category] += 1
-                else:
-                    scores[category] += 3
-
+                scores[category] += 3
                 reasons[category].append(f"contenido contiene '{keyword}'")
-
-    # ------------------------------------------------------------
-    # OVERRIDES MUY OBVIOS PARA PDFs
-    # ------------------------------------------------------------
-
-    if extension == ".pdf":
-        obvious_course_terms = [
-            "seminario",
-            "curso",
-            "certificacion",
-            "material adicional",
-            "preview",
-            "luminarias",
-            "sol y luna",
-            "volver a la luna",
-            "clase",
-        ]
-
-        obvious_visual_terms = [
-            "cabinet",
-            "wonders",
-            "catalogo",
-            "catalogue",
-            "imagen",
-            "visual",
-            "ilustrado",
-            "ilustrada",
-            "manuscrito",
-            "dragon",
-            "grabado",
-            "sketchbook",
-            "scriber",
-        ]
-
-        obvious_identity_terms = [
-            "manifiesto",
-            "fundamentos",
-            "marca",
-            "identidad",
-            "proyecto integral",
-            "casa matriz",
-        ]
-
-        obvious_author_terms = [
-            "cosmos no existe",
-            "core",
-            "habitar los pliegues",
-            "venus y su doble",
-            "buena astrologa",
-            "ensayo propio",
-        ]
-
-        if any(normalize(term) in normalized_name for term in obvious_course_terms):
-            scores["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"] += 60
-            reasons["03_CURSOS_FORMACION_Y_ARCHIVO_ASTROLOGICO"].append(
-                "PDF con nombre claramente asociado a curso/formación"
-            )
-
-        if any(normalize(term) in normalized_name for term in obvious_visual_terms):
-            scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 60
-            reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
-                "PDF con nombre claramente asociado a archivo visual/editorial"
-            )
-
-        if any(normalize(term) in normalized_name for term in obvious_identity_terms):
-            scores["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"] += 60
-            reasons["01_IDENTIDAD_MARCA_Y_ESTRATEGIA"].append(
-                "PDF con nombre claramente asociado a identidad/marca"
-            )
-
-        if any(normalize(term) in normalized_name for term in obvious_author_terms):
-            scores["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"] += 60
-            reasons["02_OBRA_AUTORAL_ENSAYOS_Y_BORRADORES"].append(
-                "PDF con nombre claramente asociado a obra autoral"
-            )
 
     # ------------------------------------------------------------
     # SELECCIÓN FINAL
@@ -639,21 +561,6 @@ def classify_file(filename: str, text: str):
         )
 
     return best_category, best_score, "; ".join(reasons[best_category][:4])
-
-
-def file_icon(extension: str) -> str:
-    if extension in IMAGE_EXTENSIONS:
-        return "🖼️"
-    if extension == ".pdf":
-        return "📕"
-    if extension == ".docx":
-        return "📄"
-    if extension in [".txt", ".md"]:
-        return "📝"
-    if extension in DESIGN_EXTENSIONS:
-        return "🎨"
-    return "📎"
-
 
 # ============================================================
 # INVENTORY
