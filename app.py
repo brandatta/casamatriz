@@ -317,6 +317,13 @@ def github_delete_file(path: str, message: str):
 
 
 def github_download_file(path: str) -> bytes:
+    """
+    Descarga archivos desde GitHub.
+    Soporta:
+    1. Archivos chicos devueltos como base64 por Contents API.
+    2. Archivos grandes con download_url.
+    3. Archivos grandes/privados usando Accept: application/vnd.github.raw.
+    """
     data = github_get_file(path)
 
     if not data:
@@ -326,22 +333,48 @@ def github_download_file(path: str) -> bytes:
     encoding = data.get("encoding")
     download_url = data.get("download_url")
 
-    # Caso normal: GitHub devuelve contenido base64
+    # Caso 1: archivo chico devuelto en base64
     if content and encoding == "base64":
-        return base64.b64decode(content)
+        try:
+            return base64.b64decode(content)
+        except Exception:
+            pass
 
-    # Caso archivos grandes: GitHub no devuelve content, pero sí download_url
+    # Caso 2: archivo con download_url
     if download_url:
-        response = requests.get(
-            download_url,
-            headers=github_headers(),
-            timeout=90,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.get(
+                download_url,
+                headers=github_headers(),
+                timeout=120,
+            )
+            response.raise_for_status()
+
+            if response.content:
+                return response.content
+        except Exception:
+            pass
+
+    # Caso 3: fallback raw vía GitHub Contents API
+    # Esto suele resolver PDFs grandes o repos privados.
+    _, _, branch = get_github_config()
+
+    raw_headers = github_headers()
+    raw_headers["Accept"] = "application/vnd.github.raw"
+
+    response = requests.get(
+        github_api_url(path),
+        headers=raw_headers,
+        params={"ref": branch},
+        timeout=120,
+    )
+
+    response.raise_for_status()
+
+    if response.content:
         return response.content
 
-    raise ValueError(f"No se pudo decodificar {path}")
-
+    raise ValueError(f"No se pudo descargar {path}")
 
 def github_move_file(old_path: str, new_path: str, file_bytes: bytes, filename: str):
     """
