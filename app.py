@@ -619,62 +619,89 @@ def can_preview(extension: str) -> bool:
 
 
 def render_preview(filename: str, extension: str, file_bytes: bytes):
-    if len(file_bytes) > PREVIEW_MAX_BYTES and extension == ".pdf":
-        st.warning(
-            f"El PDF pesa {round(len(file_bytes) / 1024 / 1024, 2)} MB. "
-            "Para evitar problemas de performance, usá la descarga."
-        )
-        return
+    size_mb = round(len(file_bytes) / 1024 / 1024, 2)
+
+    st.caption(f"Archivo: {filename} · Tamaño: {size_mb} MB")
 
     if extension in IMAGE_EXTENSIONS:
-        st.image(file_bytes, caption=filename, use_container_width=True)
+        try:
+            st.image(file_bytes, caption=filename, use_container_width=True)
+        except Exception as error:
+            st.warning(f"No se pudo previsualizar la imagen: {error}")
         return
 
     if extension == ".pdf":
-        encoded_pdf = base64.b64encode(file_bytes).decode("utf-8")
-        pdf_display = f"""
-        <iframe
-            src="data:application/pdf;base64,{encoded_pdf}"
-            width="100%"
-            height="700"
-            type="application/pdf">
-        </iframe>
-        """
-        st.markdown(pdf_display, unsafe_allow_html=True)
+        st.info(
+            "Vista previa textual del PDF. Para ver el archivo completo, usá el botón Descargar."
+        )
+
+        try:
+            text = extract_pdf(file_bytes, max_pages=5)
+
+            if not text or text.startswith("[ERROR_PDF]"):
+                st.warning(
+                    "No se pudo extraer texto del PDF. Puede ser un PDF escaneado, de imágenes o protegido."
+                )
+                return
+
+            st.text_area(
+                "Primeras páginas del PDF",
+                value=text[:15000],
+                height=500,
+                disabled=True,
+            )
+
+            if len(text) > 15000:
+                st.caption("Preview truncado a 15.000 caracteres.")
+
+        except Exception as error:
+            st.warning(f"No se pudo previsualizar el PDF: {error}")
+
         return
 
     if extension == ".docx":
-        text = extract_docx(file_bytes)
-        if not text.strip():
-            st.info("No se pudo extraer texto del DOCX.")
-            return
+        try:
+            text = extract_docx(file_bytes)
 
-        st.text_area(
-            "Preview de texto DOCX",
-            value=text[:12000],
-            height=400,
-            disabled=True,
-        )
+            if not text or text.startswith("[ERROR_DOCX]"):
+                st.warning("No se pudo extraer texto del DOCX.")
+                return
 
-        if len(text) > 12000:
-            st.caption("Preview truncado a 12.000 caracteres.")
+            st.text_area(
+                "Preview de texto DOCX",
+                value=text[:15000],
+                height=500,
+                disabled=True,
+            )
+
+            if len(text) > 15000:
+                st.caption("Preview truncado a 15.000 caracteres.")
+
+        except Exception as error:
+            st.warning(f"No se pudo previsualizar el DOCX: {error}")
+
         return
 
     if extension in TEXT_EXTENSIONS:
-        text = extract_txt(file_bytes)
-        st.text_area(
-            "Preview de texto",
-            value=text[:12000],
-            height=400,
-            disabled=True,
-        )
+        try:
+            text = extract_txt(file_bytes)
 
-        if len(text) > 12000:
-            st.caption("Preview truncado a 12.000 caracteres.")
+            st.text_area(
+                "Preview de texto",
+                value=text[:15000],
+                height=500,
+                disabled=True,
+            )
+
+            if len(text) > 15000:
+                st.caption("Preview truncado a 15.000 caracteres.")
+
+        except Exception as error:
+            st.warning(f"No se pudo previsualizar el archivo de texto: {error}")
+
         return
 
-    st.info("Este tipo de archivo no tiene preview disponible.")
-
+    st.info("Este tipo de archivo no tiene previsualización disponible.")
 
 # ============================================================
 # INVENTORY
