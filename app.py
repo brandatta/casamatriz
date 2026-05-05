@@ -322,11 +322,23 @@ def github_download_file(path: str) -> bytes:
     if not data:
         raise FileNotFoundError(path)
 
-    content = data.get("content", "")
-    encoding = data.get("encoding", "")
+    content = data.get("content")
+    encoding = data.get("encoding")
+    download_url = data.get("download_url")
 
-    if encoding == "base64":
+    # Caso normal: GitHub devuelve contenido base64
+    if content and encoding == "base64":
         return base64.b64decode(content)
+
+    # Caso archivos grandes: GitHub no devuelve content, pero sí download_url
+    if download_url:
+        response = requests.get(
+            download_url,
+            headers=github_headers(),
+            timeout=90,
+        )
+        response.raise_for_status()
+        return response.content
 
     raise ValueError(f"No se pudo decodificar {path}")
 
