@@ -64,6 +64,12 @@ DESIGN_EXTENSIONS = {
     ".ai", ".psd", ".indd"
 }
 
+TEXT_EXTENSIONS = {
+    ".txt", ".md"
+}
+
+PREVIEW_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
+
 RULES = {
     "01_IDENTIDAD_MARCA_Y_ESTRATEGIA": [
         "casa matriz",
@@ -406,8 +412,13 @@ def normalize(value: str) -> str:
     value = re.sub(r"\s+", " ", value)
 
     replacements = {
-        "á": "a", "é": "e", "í": "i", "ó": "o",
-        "ú": "u", "ü": "u", "ñ": "n",
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ü": "u",
+        "ñ": "n",
     }
 
     for original, replacement in replacements.items():
@@ -482,7 +493,7 @@ def extract_text(filename: str, file_bytes: bytes) -> str:
     if extension == ".pdf":
         return extract_pdf(file_bytes)
 
-    if extension in [".txt", ".md"]:
+    if extension in TEXT_EXTENSIONS:
         return extract_txt(file_bytes)
 
     if extension in IMAGE_EXTENSIONS:
@@ -592,11 +603,77 @@ def file_icon(extension: str) -> str:
         return "📕"
     if extension == ".docx":
         return "📄"
-    if extension in [".txt", ".md"]:
+    if extension in TEXT_EXTENSIONS:
         return "📝"
     if extension in DESIGN_EXTENSIONS:
         return "🎨"
     return "📎"
+
+
+# ============================================================
+# PREVIEW HELPERS
+# ============================================================
+
+def can_preview(extension: str) -> bool:
+    return extension in IMAGE_EXTENSIONS or extension in {".pdf", ".docx", ".txt", ".md"}
+
+
+def render_preview(filename: str, extension: str, file_bytes: bytes):
+    if len(file_bytes) > PREVIEW_MAX_BYTES and extension == ".pdf":
+        st.warning(
+            f"El PDF pesa {round(len(file_bytes) / 1024 / 1024, 2)} MB. "
+            "Para evitar problemas de performance, usá la descarga."
+        )
+        return
+
+    if extension in IMAGE_EXTENSIONS:
+        st.image(file_bytes, caption=filename, use_container_width=True)
+        return
+
+    if extension == ".pdf":
+        encoded_pdf = base64.b64encode(file_bytes).decode("utf-8")
+        pdf_display = f"""
+        <iframe
+            src="data:application/pdf;base64,{encoded_pdf}"
+            width="100%"
+            height="700"
+            type="application/pdf">
+        </iframe>
+        """
+        st.markdown(pdf_display, unsafe_allow_html=True)
+        return
+
+    if extension == ".docx":
+        text = extract_docx(file_bytes)
+        if not text.strip():
+            st.info("No se pudo extraer texto del DOCX.")
+            return
+
+        st.text_area(
+            "Preview de texto DOCX",
+            value=text[:12000],
+            height=400,
+            disabled=True,
+        )
+
+        if len(text) > 12000:
+            st.caption("Preview truncado a 12.000 caracteres.")
+        return
+
+    if extension in TEXT_EXTENSIONS:
+        text = extract_txt(file_bytes)
+        st.text_area(
+            "Preview de texto",
+            value=text[:12000],
+            height=400,
+            disabled=True,
+        )
+
+        if len(text) > 12000:
+            st.caption("Preview truncado a 12.000 caracteres.")
+        return
+
+    st.info("Este tipo de archivo no tiene preview disponible.")
 
 
 # ============================================================
@@ -922,6 +999,8 @@ def render_file_card(row):
         if str(row.get("uploaded_at", "")).strip():
             st.caption(f"Subido: {row.get('uploaded_at')}")
 
+        file_bytes = None
+
         try:
             file_bytes = github_download_file(path)
 
@@ -933,6 +1012,12 @@ def render_file_card(row):
             )
         except Exception as error:
             st.warning(f"No se pudo preparar la descarga: {error}")
+
+        if file_bytes and can_preview(extension):
+            with st.expander("Previsualizar archivo"):
+                render_preview(filename, extension, file_bytes)
+        elif file_bytes:
+            st.caption("Este tipo de archivo no tiene previsualización disponible.")
 
         st.divider()
 
