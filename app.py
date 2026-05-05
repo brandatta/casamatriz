@@ -333,14 +333,12 @@ def github_download_file(path: str) -> bytes:
     encoding = data.get("encoding")
     download_url = data.get("download_url")
 
-    # Caso 1: archivo chico devuelto en base64
     if content and encoding == "base64":
         try:
             return base64.b64decode(content)
         except Exception:
             pass
 
-    # Caso 2: archivo con download_url
     if download_url:
         try:
             response = requests.get(
@@ -355,8 +353,6 @@ def github_download_file(path: str) -> bytes:
         except Exception:
             pass
 
-    # Caso 3: fallback raw vía GitHub Contents API
-    # Esto suele resolver PDFs grandes o repos privados.
     _, _, branch = get_github_config()
 
     raw_headers = github_headers()
@@ -375,6 +371,7 @@ def github_download_file(path: str) -> bytes:
         return response.content
 
     raise ValueError(f"No se pudo descargar {path}")
+
 
 def github_move_file(old_path: str, new_path: str, file_bytes: bytes, filename: str):
     """
@@ -449,10 +446,6 @@ def extract_docx(file_bytes: bytes) -> str:
 
 
 def extract_pdf(file_bytes: bytes, max_pages: int = 5) -> str:
-    """
-    Se mantiene para tags/metadatos si alguna vez se usa.
-    La clasificación de PDF es absoluta a Bibliografía.
-    """
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
         parts = []
@@ -541,11 +534,7 @@ def detect_tags(text: str) -> str:
 def classify_file(filename: str, text: str):
     extension = Path(filename).suffix.lower()
 
-    # ------------------------------------------------------------
-    # REGLA ABSOLUTA
-    # ------------------------------------------------------------
     # Todo PDF va siempre a Bibliografía / investigación / fuentes.
-    # No se evalúan keywords ni contenido para PDFs.
     if extension == ".pdf":
         return (
             "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES",
@@ -559,10 +548,6 @@ def classify_file(filename: str, text: str):
     scores = {category: 0 for category in CATEGORIES}
     reasons = {category: [] for category in CATEGORIES}
 
-    # ------------------------------------------------------------
-    # DEFAULTS FUERTES POR EXTENSIÓN
-    # ------------------------------------------------------------
-
     if extension in IMAGE_EXTENSIONS:
         scores["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"] += 30
         reasons["05_ARCHIVO_VISUAL_EDITORIAL_Y_REFERENCIAS"].append(
@@ -575,10 +560,6 @@ def classify_file(filename: str, text: str):
             f"archivo de diseño {extension}"
         )
 
-    # ------------------------------------------------------------
-    # KEYWORDS GENERALES PARA NO-PDF
-    # ------------------------------------------------------------
-
     for category, keywords in RULES.items():
         for keyword in keywords:
             keyword_normalized = normalize(keyword)
@@ -590,10 +571,6 @@ def classify_file(filename: str, text: str):
             elif keyword_normalized in normalized_text:
                 scores[category] += 3
                 reasons[category].append(f"contenido contiene '{keyword}'")
-
-    # ------------------------------------------------------------
-    # SELECCIÓN FINAL
-    # ------------------------------------------------------------
 
     best_category = max(scores, key=scores.get)
     best_score = scores[best_category]
@@ -693,12 +670,6 @@ def remove_inventory_path(path: str):
 
 
 def rebuild_inventory_from_storage() -> pd.DataFrame:
-    """
-    Reconstruye el inventario desde las carpetas reales de GitHub.
-    Ojo: esta función NO mueve archivos.
-    Pero si encuentra un PDF en carpeta incorrecta, lo marca como Bibliografía en el inventario.
-    Para mover físicamente PDFs, usar force_move_all_pdfs_to_bibliography().
-    """
     rows = []
 
     for category in CATEGORIES:
@@ -744,10 +715,6 @@ def rebuild_inventory_from_storage() -> pd.DataFrame:
 
 
 def reclassify_and_move_existing_files() -> tuple[pd.DataFrame, list[str]]:
-    """
-    Lee el inventario actual, descarga cada archivo, reclasifica con las reglas actuales,
-    mueve el archivo si cambió de categoría y actualiza el inventario.
-    """
     df = load_inventory()
 
     if df.empty:
@@ -825,12 +792,6 @@ def reclassify_and_move_existing_files() -> tuple[pd.DataFrame, list[str]]:
 
 
 def force_move_all_pdfs_to_bibliography() -> tuple[pd.DataFrame, list[str]]:
-    """
-    Escanea directamente todas las carpetas storage/* en GitHub.
-    Si encuentra PDFs fuera de Bibliografía, los mueve físicamente.
-    Luego reconstruye y guarda el inventario.
-    No depende del inventario actual.
-    """
     target_category = "04_BIBLIOGRAFIA_INVESTIGACION_Y_FUENTES"
     logs = []
 
@@ -875,6 +836,64 @@ def force_move_all_pdfs_to_bibliography() -> tuple[pd.DataFrame, list[str]]:
     return rebuilt, logs
 
 
+def move_file_to_category(row, new_category: str) -> tuple[bool, str]:
+    """
+    Mueve manualmente un archivo individual a otra sección.
+    Actualiza:
+    - ubicación física en GitHub storage/
+    - data/inventory.csv
+    """
+    filename = str(row.get("archivo", ""))
+    old_path = str(row.get("path", ""))
+    old_category = str(row.get("categoria", ""))
+
+    if not filename or not old_path:
+        return False, "Fila inválida: falta archivo o path."
+
+    if new_category not in CATEGORIES:
+        return False, "Categoría destino inválida."
+
+    if old_category == new_category:
+        return False, "El archivo ya está en esa sección."
+
+    new_path = f"storage/{new_category}/{filename}"
+
+    try:
+        file_bytes = github_download_file(old_path)
+
+        github_move_file(
+            old_path=old_path,
+            new_path=new_path,
+            file_bytes=file_bytes,
+            filename=filename,
+        )
+
+        df = load_inventory()
+
+        if df.empty:
+            return False, "El archivo se movió, pero el inventario está vacío."
+
+        mask = df["path"] == old_path
+
+        if mask.any():
+            df.loc[mask, "categoria"] = new_category
+            df.loc[mask, "path"] = new_path
+            df.loc[mask, "motivo"] = f"movido manualmente desde {old_category}"
+        else:
+            new_row = row.to_dict()
+            new_row["categoria"] = new_category
+            new_row["path"] = new_path
+            new_row["motivo"] = f"movido manualmente desde {old_category}"
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+        save_inventory(df)
+
+        return True, f"Archivo movido a: {CATEGORY_LABELS[new_category]}"
+
+    except Exception as error:
+        return False, f"No se pudo mover el archivo: {error}"
+
+
 # ============================================================
 # UI HELPERS
 # ============================================================
@@ -884,6 +903,7 @@ def render_file_card(row):
     icon = file_icon(extension)
     filename = str(row.get("archivo", ""))
     path = str(row.get("path", ""))
+    current_category = str(row.get("categoria", ""))
 
     with st.container(border=True):
         st.markdown(f"### {icon} {filename}")
@@ -913,6 +933,35 @@ def render_file_card(row):
             )
         except Exception as error:
             st.warning(f"No se pudo preparar la descarga: {error}")
+
+        st.divider()
+
+        st.markdown("**Mover manualmente**")
+
+        current_index = (
+            CATEGORIES.index(current_category)
+            if current_category in CATEGORIES
+            else 0
+        )
+
+        new_category = st.selectbox(
+            "Nueva sección",
+            CATEGORIES,
+            index=current_index,
+            format_func=lambda category: CATEGORY_LABELS[category],
+            key=f"move_select_{path}",
+        )
+
+        if st.button("Mover archivo", key=f"move_button_{path}"):
+            success, message = move_file_to_category(row, new_category)
+
+            if success:
+                st.success(message)
+                st.rerun()
+            else:
+                st.warning(message)
+
+        st.divider()
 
         if st.button("Eliminar del sitio", key=f"delete_{path}"):
             try:
