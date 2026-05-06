@@ -997,7 +997,82 @@ def move_file_to_category(row, new_category: str) -> tuple[bool, str]:
     except Exception as error:
         return False, f"No se pudo mover el archivo: {error}"
 
+def rename_file(row, new_filename: str) -> tuple[bool, str]:
+    """
+    Renombra manualmente un archivo.
+    Actualiza:
+    - ubicación física en GitHub storage/
+    - data/inventory.csv
+    """
+    old_filename = str(row.get("archivo", ""))
+    old_path = str(row.get("path", ""))
+    category = str(row.get("categoria", ""))
 
+    if not old_filename or not old_path:
+        return False, "Fila inválida: falta archivo o path."
+
+    if category not in CATEGORIES:
+        return False, "Categoría inválida."
+
+    new_filename = clean_filename(new_filename)
+
+    if not new_filename:
+        return False, "El nuevo nombre no puede estar vacío."
+
+    old_extension = Path(old_filename).suffix.lower()
+    new_extension = Path(new_filename).suffix.lower()
+
+    if not new_extension:
+        new_filename = f"{new_filename}{old_extension}"
+        new_extension = old_extension
+
+    if new_extension != old_extension:
+        return False, f"No cambies la extensión. Debe conservarse `{old_extension}`."
+
+    if new_filename == old_filename:
+        return False, "El archivo ya tiene ese nombre."
+
+    new_path = f"storage/{category}/{new_filename}"
+
+    try:
+        existing = github_get_file(new_path)
+        if existing:
+            return False, "Ya existe un archivo con ese nombre en esta sección."
+
+        file_bytes = github_download_file(old_path)
+
+        github_move_file(
+            old_path=old_path,
+            new_path=new_path,
+            file_bytes=file_bytes,
+            filename=new_filename,
+        )
+
+        df = load_inventory()
+
+        if df.empty:
+            return False, "El archivo se renombró, pero el inventario está vacío."
+
+        mask = df["path"] == old_path
+
+        if mask.any():
+            df.loc[mask, "archivo"] = new_filename
+            df.loc[mask, "path"] = new_path
+            df.loc[mask, "motivo"] = f"renombrado manualmente desde {old_filename}"
+        else:
+            new_row = row.to_dict()
+            new_row["archivo"] = new_filename
+            new_row["path"] = new_path
+            new_row["motivo"] = f"renombrado manualmente desde {old_filename}"
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+        save_inventory(df)
+
+        return True, f"Archivo renombrado como: {new_filename}"
+
+    except Exception as error:
+        return False, f"No se pudo renombrar el archivo: {error}"
+        
 # ============================================================
 # UI HELPERS
 # ============================================================
@@ -1048,6 +1123,25 @@ def render_file_card(row):
 
         st.divider()
 
+        st.markdown("**Renombrar archivo**")
+
+        new_filename = st.text_input(
+            "Nuevo nombre",
+            value=filename,
+            key=f"rename_input_{path}",
+        )
+
+        if st.button("Renombrar archivo", key=f"rename_button_{path}"):
+            success, message = rename_file(row, new_filename)
+
+            if success:
+                st.success(message)
+                st.rerun()
+            else:
+                st.warning(message)
+
+        st.divider()
+
         st.markdown("**Mover manualmente**")
 
         current_index = (
@@ -1083,7 +1177,6 @@ def render_file_card(row):
                 st.rerun()
             except Exception as error:
                 st.error(f"No se pudo eliminar: {error}")
-
 
 # ============================================================
 # SIDEBAR
